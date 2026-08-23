@@ -168,10 +168,14 @@ function initAccountPanel() {
         viewMode.classList.add('hidden');
         editMode.classList.remove('hidden');
         editBtn.classList.add('hidden');
+        // NEU: Verhindert, dass das vom Browser ausgefüllte Passwort stehen bleibt
+        document.getElementById('input-current-pw').value = '';
     });
 
     cancelBtn.addEventListener('click', () => {
         exitEditMode(viewMode, editMode, editBtn);
+        // Auch beim Abbrechen das Feld sicherheitshalber wieder leeren
+        document.getElementById('input-current-pw').value = '';
     });
 
     saveBtn.addEventListener('click', () => {
