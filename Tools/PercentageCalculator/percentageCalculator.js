@@ -101,7 +101,10 @@ const wert = getVal(tool, "wert");
 const steuersatz = getVal(tool, "steuersatz");
 const direction = getSelectVal(tool, "direction");
 if (isNaN(wert) || isNaN(steuersatz)) return showError("Invalid input");
-
+// NEW: Prevent division by zero for -100% VAT in Gross -> Net
+if (direction === "gross-to-net" && steuersatz === -100) {
+    return showError("Invalid input"); 
+}
 if (direction === "gross-to-net") {
 const netto = round2(wert / (1 + steuersatz / 100));
 const mwst = round2(wert - netto);

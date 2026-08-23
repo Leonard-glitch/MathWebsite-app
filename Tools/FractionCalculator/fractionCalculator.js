@@ -241,6 +241,12 @@ function calculate() {
             });
         }
 
+        // ---> NEUER FIX: Vorzeichen normieren VOR dem finalen Kürzen <---
+        if (finalN < 0) {
+            finalZ = -finalZ;
+            finalN = Math.abs(finalN);
+        }
+
         // Automatically simplify the final result
         const endTeiler = ggt(finalZ, finalN);
         if (endTeiler > 1) {
@@ -254,13 +260,13 @@ function calculate() {
                 solution: `Final result: ${printBruch(finalZ, finalN)}`
             });
         } else {
-            // Mark the last existing step as the final result
+            // Mark the last existing step as the final result (jetzt mit korrigierten Vorzeichen)
             const last = steps[steps.length - 1];
             if (last) last.solution = `Final result: ${printBruch(finalZ, finalN)}`;
         }
     }
 
-    // Sign fix: negative denominator
+    // Generelles Sicherheitsnetz für negative Nenner (z.B. beim Erweitern mit negativen Zahlen)
     if (finalN < 0) {
         finalZ = -finalZ;
         finalN = Math.abs(finalN);

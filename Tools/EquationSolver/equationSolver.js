@@ -922,7 +922,9 @@ function opnd(node) {
 }
 
 
-// SOLVER
+// ==========================================================================
+// SOLVER (Gleichungslöser)
+// ==========================================================================
 
 function peelOnce(node, other, varName) {
     switch (node.type) {
@@ -994,6 +996,7 @@ function peelOnce(node, other, varName) {
                 newOther: { type: "mul", left: other, right: B }
             };
         }
+
         case "pow": {
             const inBase = containsVar(node.base, varName);
             const inExp = containsVar(node.exp, varName);
@@ -1026,10 +1029,8 @@ function peelOnce(node, other, varName) {
                 if (baseVal !== null && (baseVal <= 0 || baseVal === 1)) {
                     return { domainError: "This equation does not have a valid logarithm base (must be positive and ≠ 1)." };
                 }
-                const otherVal = tryEvalNumeric(other);
-                if (otherVal !== null && otherVal <= 0) {
-                    return { domainError: "This equation has no real solution – the logarithm is only defined for positive numbers." };
-                }
+                
+                // FIX: Fälschliche otherVal <= 0 Prüfung für den Logarithmus entfernt
 
                 return {
                     opLabel: baseIsTen ? `log( )` : `log_${opnd(node.base)}( )`,
@@ -1037,11 +1038,11 @@ function peelOnce(node, other, varName) {
                     newOther: { type: "func", name: "log", base: node.base, arg: other }
                 };
             }
-            return null; // Variable in base AND exponent -> not supported
+            return null; 
         }
 
         case "sqrt": {
-            if (!containsVar(node.arg, varName)) return null; // Variable in root index -> not supported
+            if (!containsVar(node.arg, varName)) return null; 
             const isSquare = !node.index;
             const n = node.index || { type: "num", value: 2, raw: "2" };
 
@@ -1077,10 +1078,8 @@ function peelOnce(node, other, varName) {
                 if (baseVal !== null && (baseVal <= 0 || baseVal === 1)) {
                     return { domainError: "This equation does not have a valid logarithm base (must be positive and ≠ 1)." };
                 }
-                const otherVal = tryEvalNumeric(other);
-                if (otherVal !== null && otherVal <= 0) {
-                    return { domainError: "This equation has no real solution – the logarithm is only defined for positive numbers." };
-                }
+                
+                // FIX: Fälschliche otherVal <= 0 Prüfung ebenfalls entfernt
 
                 return {
                     opLabel: `${opnd(base)}^( )`,

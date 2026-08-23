@@ -933,11 +933,7 @@ function peelOnce(node, other, varName) {
                     return { domainError: "This equation has no real solution – an even power cannot be negative." };
                 }
 
-                // Only block as ambiguous when the other side is a concrete
-                // number (genuine ± case, e.g. (x+1)²=9). Symbolic other side
-                // (e.g. isolating a from a²+b²=c²) takes the principal root,
-                // same convention as the sibling "sqrt" case below.
-                                // Formel-Umformer formt nur um: nimmt immer die Hauptwurzel
+                // Formel-Umformer formt nur um: nimmt immer die Hauptwurzel
                 // statt bei ± zu blockieren (das bleibt dem Gleichungslöser
                 // vorbehalten, der bei konkreten Zahlenwerten weiter blockt).
 
@@ -987,7 +983,7 @@ function peelOnce(node, other, varName) {
             };
         }
 
-                case "abs": {
+        case "abs": {
             const otherVal = tryEvalNumeric(other);
             if (otherVal !== null && otherVal < 0) {
                 return { domainError: "This equation has no real solution – an absolute value cannot be negative." };
@@ -1007,10 +1003,8 @@ function peelOnce(node, other, varName) {
                 if (baseVal !== null && (baseVal <= 0 || baseVal === 1)) {
                     return { domainError: "This equation does not have a valid logarithm base (must be positive and ≠ 1)." };
                 }
-                const otherVal = tryEvalNumeric(other);
-                if (otherVal !== null && otherVal <= 0) {
-                    return { domainError: "This equation has no real solution – the logarithm is only defined for positive numbers." };
-                }
+                
+                // FIX: Die fälschliche Prüfung von otherVal <= 0 wurde hier entfernt!
 
                 return {
                     opLabel: `${opnd(base)}^( )`,
