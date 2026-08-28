@@ -8,8 +8,13 @@
 
 import { tools } from './toolsCollection.js';
 
-const filename = window.location.pathname.split('/').pop();
-const toolData = tools.find(t => t.filename === filename);
+// Hol den letzten Teil der URL (z.B. "fractionCalculator" oder "fractionCalculator.html")
+const rawFilename = window.location.pathname.split('/').pop();
+// Entferne '.html' falls vorhanden, um eine saubere Basis zu haben
+const currentName = rawFilename ? rawFilename.replace('.html', '') : '';
+
+// Vergleiche flexibel, egal ob mit oder ohne .html in der Collection
+const toolData = tools.find(t => t.filename.replace('.html', '') === currentName);
 
 if (toolData) init(toolData.id);
 
