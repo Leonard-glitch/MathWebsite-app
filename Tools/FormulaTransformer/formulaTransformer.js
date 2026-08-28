@@ -1264,7 +1264,10 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     // ── Connect MathLive field ───────────────────────────────────────────
-    customElements.whenDefined("math-field").then(() => {
+    Promise.race([
+        customElements.whenDefined("math-field"),
+        new Promise((_, reject) => setTimeout(() => reject(new Error("MathLive timeout")), 3000))
+    ]).then(() => {
         const mf = document.getElementById("mathInput");
         if (!mf) return;
 
@@ -1290,8 +1293,39 @@ document.addEventListener("DOMContentLoaded", () => {
                 btn.click();
             }
         });
-    });
 
-    btn.addEventListener("click", renderSolution);
-    disableSelection();
-});
+        // Tool nur scharfschalten, wenn MathLive erfolgreich geladen wurde
+        btn.addEventListener("click", renderSolution);
+        disableSelection();
+
+    }).catch(() => {
+        // Fallback: MathLive konnte nach 3 Sekunden nicht geladen werden
+        const mf = document.getElementById("mathInput");
+        
+        // Dynamisch eine Fehlermeldung generieren (falls nicht im HTML vordefiniert)
+        let errorMessages = document.getElementById("errorMessages");
+        if (!errorMessages && mf && mf.parentElement) {
+            errorMessages = document.createElement("div");
+            errorMessages.style.color = "var(--error-color, #d32f2f)";
+            errorMessages.style.marginTop = "10px";
+            errorMessages.style.fontSize = "0.9em";
+            mf.parentElement.appendChild(errorMessages);
+        }
+
+        if (errorMessages) {
+            errorMessages.textContent = "Error: Math components could not be loaded. Please check your internet connection or disable your ad blocker.";
+            errorMessages.style.display = "block";
+        }
+
+        if (mf) {
+            mf.style.opacity = "0.5";
+            mf.style.pointerEvents = "none";
+        }
+        
+        if (typeof btn !== 'undefined' && btn) {
+            btn.disabled = true;
+            btn.style.opacity = "0.5";
+            btn.style.pointerEvents = "none";
+        }
+    });
+}); // Schließt die äußere Funktion (z.B. DOMContentLoaded), passend zum Ursprungscode

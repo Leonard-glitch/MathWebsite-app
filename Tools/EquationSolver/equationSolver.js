@@ -1340,7 +1340,10 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     // ── Bind MathLive Field ───────────────────────────────────────────
-    customElements.whenDefined("math-field").then(() => {
+    Promise.race([
+        customElements.whenDefined("math-field"),
+        new Promise((_, reject) => setTimeout(() => reject(new Error("MathLive timeout")), 3000))
+    ]).then(() => {
         const mf = document.getElementById("mathInputAllgemein");
         if (!mf) return;
 
@@ -1362,15 +1365,54 @@ document.addEventListener("DOMContentLoaded", () => {
                 if (currentType === "allgemein") btn.click();
             }
         });
-    });
 
-    // Mode switch: the button is shared between both modes.
-    // "linear" mode will be added in a later phase.
-    btn.addEventListener("click", () => {
-        if (currentType === "allgemein") renderSolutionAllgemein();
-    });
+        // Mode switch: the button is shared between both modes.
+        // Tool wird erst scharfgeschaltet, wenn MathLive erfolgreich geladen ist.
+        btn.addEventListener("click", () => {
+            if (currentType === "allgemein") renderSolutionAllgemein();
+        });
 
-    disableSelectionAllgemein();
+        disableSelectionAllgemein();
+
+    }).catch(() => {
+        // Fallback: MathLive konnte nach 3 Sekunden nicht geladen werden
+        const mfAllgemein = document.getElementById("mathInputAllgemein");
+        const lgsInputs = document.querySelectorAll(".lgsGleichungInput");
+        
+        // Dynamisch eine Fehlermeldung generieren (falls nicht im HTML vordefiniert)
+        let errorMessages = document.getElementById("errorMessages");
+        if (!errorMessages && mfAllgemein && mfAllgemein.parentElement) {
+            errorMessages = document.createElement("div");
+            errorMessages.style.color = "var(--error-color, #d32f2f)";
+            errorMessages.style.marginTop = "10px";
+            errorMessages.style.fontSize = "0.9em";
+            mfAllgemein.parentElement.appendChild(errorMessages);
+        }
+
+        if (errorMessages) {
+            errorMessages.textContent = "Error: Math components could not be loaded. Please check your internet connection or disable your ad blocker.";
+            errorMessages.style.display = "block";
+        }
+
+        // Deaktiviere das allgemeine Eingabefeld
+        if (mfAllgemein) {
+            mfAllgemein.style.opacity = "0.5";
+            mfAllgemein.style.pointerEvents = "none";
+        }
+
+        // Deaktiviere alle potenziellen linearen Gleichungsfelder
+        lgsInputs.forEach(input => {
+            input.style.opacity = "0.5";
+            input.style.pointerEvents = "none";
+        });
+        
+        // Deaktiviere den Lösungs-Button
+        if (typeof btn !== 'undefined' && btn) {
+            btn.disabled = true;
+            btn.style.opacity = "0.5";
+            btn.style.pointerEvents = "none";
+        }
+    });
 });
 
 

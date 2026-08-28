@@ -823,12 +823,16 @@ function initHistoryPanel(onReuse) {
 }
 
 // ── UI Binding ──────────────────────────────────────────────────────────
-customElements.whenDefined("math-field").then(() => {
+Promise.race([
+    customElements.whenDefined("math-field"),
+    new Promise((_, reject) => setTimeout(() => reject(new Error("MathLive timeout")), 3000))
+]).then(() => {
     const mf = document.getElementById("mathInput");
     const resultOutput = document.getElementById("resultoutput");
     const errorMessages = document.getElementById("errorMessages");
     const pathOutput = document.getElementById("pathOutput");
     const liveResultCheckbox = document.querySelector(".liveresultbutton input[type='checkbox']");
+    
     liveResultCheckbox.checked = window.MV.getLiveResult();
     liveResultCheckbox.addEventListener("change", () => {
         window.MV.setLiveResult(liveResultCheckbox.checked);
@@ -994,6 +998,21 @@ customElements.whenDefined("math-field").then(() => {
 
         mf.insert(latex, btn.dataset.placeholder === "true" ? { selectionMode: "placeholder" } : undefined);
     });
+
+}).catch(() => {
+    // Fallback: MathLive failed to load within 3 seconds
+    const errorMessages = document.getElementById("errorMessages");
+    const mf = document.getElementById("mathInput");
+    
+    if (errorMessages) {
+        errorMessages.textContent = "Error: Math components could not be loaded. Please check your internet connection or disable your ad blocker.";
+        errorMessages.style.display = "block";
+    }
+    
+    if (mf) {
+        mf.style.opacity = "0.5";
+        mf.style.pointerEvents = "none";
+    }
 });
 
 // ── Solution path accordion ─────────────────────────────────────────────
