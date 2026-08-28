@@ -168,13 +168,11 @@ function initAccountPanel() {
         viewMode.classList.add('hidden');
         editMode.classList.remove('hidden');
         editBtn.classList.add('hidden');
-        // NEU: Verhindert, dass das vom Browser ausgefüllte Passwort stehen bleibt
         document.getElementById('input-current-pw').value = '';
     });
 
     cancelBtn.addEventListener('click', () => {
         exitEditMode(viewMode, editMode, editBtn);
-        // Auch beim Abbrechen das Feld sicherheitshalber wieder leeren
         document.getElementById('input-current-pw').value = '';
     });
 
@@ -184,14 +182,21 @@ function initAccountPanel() {
         const currentPw = document.getElementById('input-current-pw').value;
         const user      = window.MV.getCurrentUser();
 
+        // FIX: Prüfen, ob die Session noch existiert (verhindert Cross-Tab-Logout-Absturz)
+        if (!user) {
+            alert('Your session has expired. Please log in again.');
+            window.location.href = '../html/login.html';
+            return;
+        }
+
         if (!currentPw || currentPw !== (user.password || '')) {
             shakeElement(document.getElementById('input-current-pw'));
             return;
         }
-       if (!newName || !USERNAME_REGEX.test(newName)) {
-        shakeElement(document.getElementById('input-username'));
-        return;
-    }
+        if (!newName || !USERNAME_REGEX.test(newName)) {
+            shakeElement(document.getElementById('input-username'));
+            return;
+        }
         if (window.MV.isUsernameTaken(newName, user.username)) {
             shakeElement(document.getElementById('input-username'));
             return;
@@ -235,7 +240,6 @@ function initSecurityPanel() {
 
     newPwInput.addEventListener('input', () => updateStrength(newPwInput.value));
 
-    // Autofill-Erkennung (z.B. vom Browser vorgeschlagenes starkes Passwort)
     newPwInput.addEventListener('animationstart', (e) => {
         if (e.animationName === 'settingsAutoFillStart') {
             updateStrength(newPwInput.value);
@@ -249,6 +253,13 @@ function initSecurityPanel() {
         const user = window.MV.getCurrentUser();
 
         errorEl.classList.add('hidden');
+
+        // FIX: Prüfen, ob die Session noch existiert (verhindert Cross-Tab-Logout-Absturz)
+        if (!user) {
+            alert('Your session has expired. Please log in again.');
+            window.location.href = '../html/login.html';
+            return;
+        }
 
         if (!cur || cur !== (user.password || '')) {
             showFormError(errorEl, 'The current password is incorrect.');
