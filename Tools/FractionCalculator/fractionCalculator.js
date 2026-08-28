@@ -34,6 +34,14 @@ function kgv(a, b) {
     return Math.abs(a * b) / ggt(a, b);
 }
 
+// ── Helper: Check if string contains a decimal number
+function isDecimal(str) {
+    if (!str || str.trim() === "") return false;
+    const cleanStr = str.replace(',', '.');
+    const num = Number(cleanStr);
+    return !isNaN(num) && !Number.isInteger(num);
+}
+
 // ── Error handling 
 function hideError() {
     errorMessages.style.display = "none";
@@ -81,9 +89,18 @@ function updateUI() {
 
 // ── Read fraction from input fields 
 function getFraction(gEl, zEl, nEl) {
-    let g = mixedToggle.checked ? (parseInt(gEl.value) || 0) : 0;
-    let z = parseInt(zEl.value);
-    let n = parseInt(nEl.value);
+    const gVal = gEl ? gEl.value.trim() : "";
+    const zVal = zEl ? zEl.value.trim() : "";
+    const nVal = nEl ? nEl.value.trim() : "";
+
+    // Prüfe auf Dezimalzahlen in den aktiven Feldern
+    if ((mixedToggle.checked && isDecimal(gVal)) || isDecimal(zVal) || isDecimal(nVal)) {
+        return "IS_DECIMAL";
+    }
+
+    let g = mixedToggle.checked ? (parseInt(gVal, 10) || 0) : 0;
+    let z = parseInt(zVal, 10);
+    let n = parseInt(nVal, 10);
 
     if (isNaN(z) || isNaN(n)) return null;
     if (n === 0)               return "NaN_Nenner";
@@ -123,8 +140,9 @@ function calculate() {
     hideError();
 
     const f1 = getFraction(inputs.g1, inputs.z1, inputs.n1);
-    if (!f1)               { resetOutput(); return; }
-    if (f1 === "NaN_Nenner") { showError("Denominator cannot be 0!"); return; }
+    if (f1 === "IS_DECIMAL")   { showError("Decimal numbers are not allowed in fractions! Please use whole numbers."); return; }
+    if (!f1)                   { resetOutput(); return; }
+    if (f1 === "NaN_Nenner")   { showError("Denominator cannot be 0!"); return; }
 
     let finalZ, finalN;
     const steps = [];
@@ -151,7 +169,10 @@ function calculate() {
 
     // ── Expand 
     } else if (currentOperation === "erweitern") {
-        const factor = parseInt(inputs.factor.value);
+        const factorVal = inputs.factor.value.trim();
+        if (isDecimal(factorVal)) { showError("Decimal numbers are not allowed! Please use whole numbers."); return; }
+
+        const factor = parseInt(factorVal, 10);
         if (isNaN(factor)) { resetOutput(); return; }
         if (factor === 0)  { showError("Expansion factor cannot be 0!"); return; }
 
@@ -168,8 +189,9 @@ function calculate() {
     // ── Basic arithmetic operations 
     } else {
         const f2 = getFraction(inputs.g2, inputs.z2, inputs.n2);
-        if (!f2)               { resetOutput(); return; }
-        if (f2 === "NaN_Nenner") { showError("Denominator cannot be 0!"); return; }
+        if (f2 === "IS_DECIMAL")   { showError("Decimal numbers are not allowed in fractions! Please use whole numbers."); return; }
+        if (!f2)                   { resetOutput(); return; }
+        if (f2 === "NaN_Nenner")   { showError("Denominator cannot be 0!"); return; }
 
         if (currentOperation === "add" || currentOperation === "sub") {
             const hauptnenner = kgv(f1.n, f2.n);
@@ -241,7 +263,6 @@ function calculate() {
             });
         }
 
-        // ---> NEUER FIX: Vorzeichen normieren VOR dem finalen Kürzen <---
         if (finalN < 0) {
             finalZ = -finalZ;
             finalN = Math.abs(finalN);
@@ -260,13 +281,11 @@ function calculate() {
                 solution: `Final result: ${printBruch(finalZ, finalN)}`
             });
         } else {
-            // Mark the last existing step as the final result (jetzt mit korrigierten Vorzeichen)
             const last = steps[steps.length - 1];
             if (last) last.solution = `Final result: ${printBruch(finalZ, finalN)}`;
         }
     }
 
-    // Generelles Sicherheitsnetz für negative Nenner (z.B. beim Erweitern mit negativen Zahlen)
     if (finalN < 0) {
         finalZ = -finalZ;
         finalN = Math.abs(finalN);
@@ -280,7 +299,7 @@ function calculate() {
         return `
             <div class="step-container ${isLast ? "final-step" : ""}">
                 <div class="step-title">${step.title}</div>
-                ${step.text     ? `<div class="step-text">${step.text}</div>`         : ""}
+                ${step.text     ? `<div class="step-text">${step.text}</div>`        : ""}
                 <div class="step-formula-box">${step.formula}</div>
                 ${step.solution ? `<div class="step-sub-solution">${step.solution}</div>` : ""}
             </div>`;

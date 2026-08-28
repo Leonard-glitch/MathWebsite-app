@@ -16,9 +16,11 @@ function initSearchInstance(searchInput) {
 
     function positionResults() {
         const rect = navRow.getBoundingClientRect();
-        searchResults.style.top   = `${Math.round(rect.bottom + 8)}px`;
-        searchResults.style.left  = `${Math.round(rect.left)}px`;
-        searchResults.style.width = `${Math.round(rect.width)}px`;
+        // Keine Rundung verwenden, um Sub-Pixel-Überhänge und 
+        // das Auslösen der horizontalen Scrollbar zu vermeiden.
+        searchResults.style.top   = `${rect.bottom + 8}px`;
+        searchResults.style.left  = `${rect.left}px`;
+        searchResults.style.width = `${rect.width}px`;
     }
 
     function showResultsForCurrentQuery() {
@@ -80,6 +82,24 @@ function initSearchInstance(searchInput) {
 
     searchInput.addEventListener("input", showResultsForCurrentQuery);
     searchInput.addEventListener("focus", showResultsForCurrentQuery);
+
+    // NEU: Enter-Taste im Suchfeld öffnet das erste Ergebnis
+    searchInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+            e.preventDefault(); // Verhindert z.B. unbeabsichtigtes Neuladen bei Formularen
+            
+            // Prüfen, ob die Ergebnisliste gerade sichtbar ist
+            if (searchResults.style.display === "block") {
+                // Selektiert explizit das erste <a> Tag (ignoriert das "No results" <div>)
+                const firstResult = searchResults.querySelector("a.searchResult");
+                
+                if (firstResult && firstResult.href) {
+                    // Zum Link des ersten Ergebnisses navigieren
+                    window.location.href = firstResult.href;
+                }
+            }
+        }
+    });
 
     document.addEventListener("click", e => {
         if (!searchResults.contains(e.target) && e.target !== searchInput) {

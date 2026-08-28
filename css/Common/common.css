@@ -65,6 +65,9 @@ body {
     min-height: 100vh;
     display: flex;
     flex-direction: column;
+    /* FIX: Verhindert, dass Sub-Pixel oder überbreite Container 
+       eine seitliche Scrollbar und Layout-Thrashing auslösen */
+    overflow-x: hidden; 
 }
 
 main {

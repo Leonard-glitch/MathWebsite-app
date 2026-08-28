@@ -17,20 +17,20 @@
     <title>Fraction Calculator</title>
 </head>
 <body>
-       <header>
+    <header>
         <nav class="navbar">
-        <a href="../../index.html"><img src="../../pictures/WebsiteLogoImageLongImageV2.png" alt="" class="navImage"></a>
+            <a href="../../index.html"><img src="../../pictures/WebsiteLogoImageLongImageV2.png" alt="" class="navImage"></a>
 
-        <div>
-            <input type="text" name="search" id="searchInput" placeholder="Search..." autocomplete="off">
+            <div>
+                <input type="text" name="search" id="searchInput" placeholder="Search..." autocomplete="off">
+                <div id="searchResults"></div>
+            </div>
 
-            <div id="searchResults"></div>
-        </div>
-
-        <div id="navUserArea"><a href="../../html/login.html" target="_self" class="navTextBorder">Login</a>
-            <a href="../../html/register.html" target="_self" class="navTextBorder">Register</a>
-        </div>
-    </nav>
+            <div id="navUserArea">
+                <a href="../../html/login.html" target="_self" class="navTextBorder">Login</a>
+                <a href="../../html/register.html" target="_self" class="navTextBorder">Register</a>
+            </div>
+        </nav>
     </header>
 
     <main>
@@ -61,11 +61,11 @@
 
                 <!-- Bruch 1 -->
                 <div class="bruchWrapper" id="wrapperBruch1">
-                    <input type="number" id="ganzzahl1" placeholder="0" class="numberInputField mixed-field">
+                    <input type="number" id="ganzzahl1" placeholder="0" class="numberInputField mixed-field" step="any">
                     <div class="bruchEingabe">
-                        <input type="number" id="zaehler1" placeholder="Numerator " class="numberInputField">
+                        <input type="number" id="zaehler1" placeholder="Numerator " class="numberInputField" step="any">
                         <div class="bruchStrich"></div>
-                        <input type="number" id="nenner1"  placeholder="Denominator" class="numberInputField">
+                        <input type="number" id="nenner1"  placeholder="Denominator" class="numberInputField" step="any">
                     </div>
                 </div>
 
@@ -74,13 +74,12 @@
 
                 <!-- Bruch 2 / Erweiterungsfaktor -->
                 <div class="bruchWrapper" id="wrapperBruch2">
-                    <input type="number" id="ganzzahl2" placeholder="0"      class="numberInputField mixed-field">
-                    <input type="number" id="erwFaktor" placeholder="Factor" class="numberInputField single-factor-field">
+                    <input type="number" id="ganzzahl2" placeholder="0"      class="numberInputField mixed-field" step="any">
+                    <input type="number" id="erwFaktor" placeholder="Factor" class="numberInputField single-factor-field" step="any">
                     <div class="bruchEingabe" id="bruch2Eingabe">
-                        
-                        <input type="number" id="zaehler2"  placeholder="Numerator " class="numberInputField">
+                        <input type="number" id="zaehler2"  placeholder="Numerator " class="numberInputField" step="any">
                         <div class="bruchStrich"></div>
-                        <input type="number" id="nenner2"   placeholder="Denominator" class="numberInputField">
+                        <input type="number" id="nenner2"   placeholder="Denominator" class="numberInputField" step="any">
                     </div>
                 </div>
 
