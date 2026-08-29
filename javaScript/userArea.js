@@ -59,6 +59,16 @@ shakeStyle.textContent = `
 `;
 document.head.appendChild(shakeStyle);
 
+// Schutz vor dem "Zurück"-Button (bfcache) nach dem Logout
+window.addEventListener('pageshow', (e) => {
+    // Wenn die Seite aus dem Cache geladen wird (e.persisted) 
+    // ODER normal geladen wird, prüfen wir den Login-Status.
+    // Falls der User nicht (mehr) eingeloggt ist -> ab zum Login!
+    if (!window.MV.isLoggedIn()) {
+        window.location.href = '../html/login.html'; // Pfad ggf. anpassen
+    }
+});
+
 // ── Initialisierung ───────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
 
