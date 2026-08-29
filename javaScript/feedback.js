@@ -103,6 +103,9 @@
     };
 
     const closeModal = () => {
+      // NEU: Schließen blockieren, wenn gerade ein Request läuft (Klick außerhalb, ESC, X-Button)
+      if (isSubmitting) return;
+
       modal.style.display = "none";
       if (successMsg.style.display === "flex") {
         resetModalState();
@@ -194,7 +197,11 @@
           throw new Error(`Server returned status ${response.status}`);
         }
 
-        // Erfolgsfall
+        // NEU: Request ist beendet. Flag sofort zurücksetzen, 
+        // damit closeModal() wieder funktioniert!
+        isSubmitting = false;
+
+        // Erfolgsfall UI-Updates
         formContainer.style.display = "none";
         successMsg.style.display = "flex";
 
@@ -213,6 +220,7 @@
           const btnText = submitBtn.querySelector(".btn-text");
           if (btnText) btnText.textContent = "Send";
         }
+        // isSubmitting = false ist hier ja bereits korrekterweise vorhanden
         isSubmitting = false;
       }
     });
