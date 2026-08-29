@@ -1186,7 +1186,13 @@ function isolate(eq, varName) {
 
 function canSolveFor(eq, varName) {
     if (countVarOccurrences(eq.left, varName) + countVarOccurrences(eq.right, varName) === 0) return false;
-    return isolate(eq, varName) !== null;
+    
+    // Führe isolate aus und speichere das Ergebnis
+    const result = isolate(eq, varName);
+    
+    // Die Variable ist nur dann lösbar, wenn isolate nicht null zurückgibt 
+    // UND das zurückgegebene Objekt keine error-Eigenschaft besitzt.
+    return result !== null && !result.error;
 }
 
 function hasVarInSqrtIndex(node, varName) {
