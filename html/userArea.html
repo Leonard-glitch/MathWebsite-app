@@ -146,7 +146,8 @@
                         <div class="formGroup">
                             <label class="formLabel">Current password <span class="required"></span></label>
                             <div class="passwordWrapper">
-                                <input type="password" id="input-current-pw" class="settingsInput" placeholder="Current password" autocomplete="new-password">
+                                <!-- FIX: autocomplete auf "current-password" geändert und name-Attribut hinzugefügt -->
+                                <input type="password" id="input-current-pw" name="current-password" class="settingsInput" placeholder="Current password" autocomplete="current-password">
                                 <button type="button" class="pwToggle" data-target="input-current-pw"><i class="fa fa-eye"></i></button>
                             </div>
                         </div>
@@ -177,7 +178,8 @@
                     <div class="formGroup">
                         <label class="formLabel">Current password</label>
                         <div class="passwordWrapper">
-                            <input type="password" id="sec-current-pw" class="settingsInput" placeholder="••••••••">
+                            <!-- FIX: name und autocomplete="current-password" hinzugefügt -->
+                            <input type="password" id="sec-current-pw" name="current-password" class="settingsInput" placeholder="••••••••" autocomplete="current-password">
                             <button type="button" class="pwToggle" data-target="sec-current-pw"><i class="fa fa-eye"></i></button>
                         </div>
                     </div>
@@ -185,7 +187,8 @@
                     <div class="formGroup">
                         <label class="formLabel">New password</label>
                         <div class="passwordWrapper">
-                            <input type="password" id="sec-new-pw" class="settingsInput" placeholder="••••••••">
+                            <!-- FIX: name und autocomplete="new-password" hinzugefügt -->
+                            <input type="password" id="sec-new-pw" name="new-password" class="settingsInput" placeholder="••••••••" autocomplete="new-password">
                             <button type="button" class="pwToggle" data-target="sec-new-pw"><i class="fa fa-eye"></i></button>
                         </div>
                         <div class="strengthBar" id="sec-strengthBar">
@@ -197,7 +200,8 @@
                     <div class="formGroup">
                         <label class="formLabel">Confirm new password</label>
                         <div class="passwordWrapper">
-                            <input type="password" id="sec-confirm-pw" class="settingsInput" placeholder="••••••••">
+                            <!-- FIX: name und autocomplete="new-password" (für Bestätigungsfelder identisch) hinzugefügt -->
+                            <input type="password" id="sec-confirm-pw" name="confirm-new-password" class="settingsInput" placeholder="••••••••" autocomplete="new-password">
                             <button type="button" class="pwToggle" data-target="sec-confirm-pw"><i class="fa fa-eye"></i></button>
                         </div>
                     </div>
