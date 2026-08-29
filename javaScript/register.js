@@ -265,10 +265,15 @@ privacyCheckbox.addEventListener('change', () => {
     }
 });
 
+let isSubmitting = false;
+
 // SUBMIT HANDLER
 
 form.addEventListener('submit', (e) => {
     e.preventDefault();
+
+    // NEU: Wenn bereits gesendet wird, sofort abbrechen!
+    if (isSubmitting) return;
 
     hideMsg(usernameError);
     hideMsg(emailError);
@@ -358,6 +363,16 @@ form.addEventListener('submit', (e) => {
             firstErrorInput.focus();
         }
     } else {
+        // NEU: Flag setzen und Button deaktivieren, um Mehrfach-Klicks zu verhindern
+        isSubmitting = true;
+        const submitBtn = form.querySelector('button[type="submit"]');
+        if (submitBtn) {
+            submitBtn.disabled = true;
+            submitBtn.style.cursor = 'not-allowed';
+            submitBtn.style.opacity = '0.7';
+            // Optional: Text anpassen, z.B.: submitBtn.textContent = 'Registering...';
+        }
+
         // IF EVERYTHING IS VALID: Register and log in user
         window.MV.registerUser({
             username: uname,
