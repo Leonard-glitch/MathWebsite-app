@@ -23,7 +23,7 @@
 }
 
 .legalCard:hover {
-    border-color: rgba(138, 22, 255, 0.4);
+    border-color: var(--border-glow);
 }
 
 /* HAUPT-ÜBERSCHRIFTEN (z.B. "1. Datenschutz auf einen Blick") */

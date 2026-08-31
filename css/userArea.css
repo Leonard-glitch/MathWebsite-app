@@ -310,10 +310,6 @@ body {
     border-color: rgba(255, 42, 95, 0.55);
 }
 
-.settingsCard--preview {
-    border-color: rgba(138, 22, 255, 0.2);
-}
-
 .cardHeader {
     display: flex;
     align-items: center;
