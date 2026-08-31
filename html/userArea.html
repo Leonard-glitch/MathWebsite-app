@@ -124,7 +124,12 @@
                         </div>
                         <div class="infoRow">
                             <div class="infoLabel">Email address</div>
-                            <div class="infoValue" id="view-email"></div>
+                            <div class="infoValueRow">
+                                <div class="infoValue" id="view-email"></div>
+                                <button type="button" class="editCardBtn" id="changeEmailBtn">
+                                    <i class="fa fa-envelope"></i> <span>Change</span>
+                                </button>
+                            </div>
                         </div>
                         <div class="infoRow">
                             <div class="infoLabel">Member since</div>
@@ -138,10 +143,6 @@
                         <div class="formGroup">
                             <label class="formLabel">Username</label>
                             <input type="text" id="input-username" class="settingsInput" value="">
-                        </div>
-                        <div class="formGroup">
-                            <label class="formLabel">Email address</label>
-                            <input type="email" id="input-email" class="settingsInput" placeholder="New email...">
                         </div>
                         <div class="formGroup">
                             <label class="formLabel">Current password <span class="required"></span></label>
@@ -438,6 +439,68 @@
             <div class="modalActions">
                 <button class="cancelEditBtn" id="logoutCancelBtn">Cancel</button>
                 <button class="saveChangesBtn" id="logoutConfirmBtn">Sign out</button>
+            </div>
+        </div>
+    </div>
+
+        <div class="modalOverlay hidden" id="changeEmailModal">
+        <div class="modalBox">
+            <h2 class="modalTitle">Change email address</h2>
+
+            <div id="emailStep1">
+                <p class="modalText">
+                    For your security, we'll send a verification code to your new address to confirm you have access to it. Your current email stays active until the change is confirmed.
+                </p>
+
+                <div class="formGroup">
+                    <label class="formLabel">New email address</label>
+                    <input type="email" id="newEmailInput" class="settingsInput" placeholder="new.address@example.com" autocomplete="off">
+                </div>
+
+                <div class="formGroup">
+                    <label class="formLabel">Current password <span class="required"></span></label>
+                    <div class="passwordWrapper">
+                        <input type="password" id="emailChangeCurrentPw" name="current-password" class="settingsInput" placeholder="Current password" autocomplete="current-password">
+                        <button type="button" class="pwToggle" data-target="emailChangeCurrentPw"><i class="fa fa-eye"></i></button>
+                    </div>
+                </div>
+
+                <div class="formError hidden" id="emailStep1Error"></div>
+
+                <div class="modalActions">
+                    <button class="cancelEditBtn" id="emailModalCancelBtn1">Cancel</button>
+                    <button class="saveChangesBtn" id="sendEmailCodeBtn">Send verification code</button>
+                </div>
+            </div>
+
+            <div id="emailStep2" class="hidden">
+                <p class="modalText">
+                    We sent a 6-digit code to <strong id="pendingNewEmailLabel"></strong>. Enter it below to confirm the change. The code is valid for 15 minutes.
+                </p>
+
+                <div class="formGroup">
+                    <label class="formLabel">Verification code</label>
+                    <input type="text" id="emailCodeInput" class="settingsInput codeInput" placeholder="000000" inputmode="numeric" maxlength="6" autocomplete="one-time-code">
+                </div>
+
+                <div class="formError hidden" id="emailStep2Error"></div>
+
+                <button type="button" class="resendCodeLink" id="resendEmailCodeBtn">Resend code</button>
+
+                <div class="modalActions">
+                    <button class="cancelEditBtn" id="emailModalCancelBtn2">Cancel</button>
+                    <button class="saveChangesBtn" id="verifyEmailCodeBtn">Verify &amp; update email</button>
+                </div>
+            </div>
+
+            <div id="emailStepSuccess" class="hidden">
+                <div class="toastMessage" style="margin-top:0;">
+                    <i class="fa fa-check-circle"></i>
+                    <span>Your email address has been updated!</span>
+                </div>
+                <div class="modalActions" style="margin-top:1rem;">
+                    <button class="saveChangesBtn" id="emailModalDoneBtn">Done</button>
+                </div>
             </div>
         </div>
     </div>

@@ -648,176 +648,336 @@ window.MV_BASE = ((document.currentScript || {}).src || '')
 
 
     // ==========================================================================
-// PASSWORT VERGESSEN – Reset-Token-Verwaltung
-//
-// WICHTIG FÜR DIE SPÄTERE BACKEND-ANBINDUNG (Supabase + Resend):
-// Diese Simulation läuft komplett im Browser (localStorage) und ersetzt
-// später einen echten Server-Endpunkt. Beim Umstieg:
-//   1. requestPasswordReset() wird zu einem Aufruf einer Supabase Edge
-//      Function / API-Route, die serverseitig:
-//        - den Token generiert und NUR gehasht in der DB speichert,
-//        - eine E-Mail über Resend mit dem Reset-Link verschickt,
-//        - IMMER dieselbe Antwort liefert, egal ob die Adresse existiert
-//          (verhindert User-Enumeration),
-//        - Rate-Limiting serverseitig durchsetzt (hier nur clientseitig
-//          und rein kosmetisch).
-//   2. validatePasswordResetToken() / resetPasswordWithToken() werden zu
-//      Supabase-Abfragen, die den gehashten Token serverseitig vergleichen.
-//   3. Der console.info()-Aufruf mit dem Klartext-Link MUSS entfernt
-//      werden, sobald Resend echte E-Mails verschickt.
-// ==========================================================================
+    // PASSWORT VERGESSEN – Reset-Token-Verwaltung
+    //
+    // WICHTIG FÜR DIE SPÄTERE BACKEND-ANBINDUNG (Supabase + Resend):
+    // Diese Simulation läuft komplett im Browser (localStorage) und ersetzt
+    // später einen echten Server-Endpunkt. Beim Umstieg:
+    //   1. requestPasswordReset() wird zu einem Aufruf einer Supabase Edge
+    //      Function / API-Route, die serverseitig:
+    //        - den Token generiert und NUR gehasht in der DB speichert,
+    //        - eine E-Mail über Resend mit dem Reset-Link verschickt,
+    //        - IMMER dieselbe Antwort liefert, egal ob die Adresse existiert
+    //          (verhindert User-Enumeration),
+    //        - Rate-Limiting serverseitig durchsetzt (hier nur clientseitig
+    //          und rein kosmetisch).
+    //   2. validatePasswordResetToken() / resetPasswordWithToken() werden zu
+    //      Supabase-Abfragen, die den gehashten Token serverseitig vergleichen.
+    //   3. Der console.info()-Aufruf mit dem Klartext-Link MUSS entfernt
+    //      werden, sobald Resend echte E-Mails verschickt.
+    // ==========================================================================
 
-const PASSWORD_RESETS_KEY   = 'mv-passwordResets';
-const RESET_TOKEN_TTL_MS    = 60 * 60 * 1000; // 1 Stunde gültig
-const RESET_RATE_LIMIT_MS   = 60 * 1000;      // 1 Anfrage pro Minute und E-Mail
-const RESET_RATE_LIMIT_KEY  = 'mv-resetRateLimit';
+    const PASSWORD_RESETS_KEY   = 'mv-passwordResets';
+    const RESET_TOKEN_TTL_MS    = 60 * 60 * 1000; // 1 Stunde gültig
+    const RESET_RATE_LIMIT_MS   = 60 * 1000;      // 1 Anfrage pro Minute und E-Mail
+    const RESET_RATE_LIMIT_KEY  = 'mv-resetRateLimit';
 
-function getPasswordResets() {
-    try {
-        const arr = JSON.parse(localStorage.getItem(PASSWORD_RESETS_KEY));
-        return Array.isArray(arr) ? arr : [];
-    } catch {
-        return [];
-    }
-}
-
-function savePasswordResets(arr) {
-    localStorage.setItem(PASSWORD_RESETS_KEY, JSON.stringify(arr));
-}
-
-// Entfernt abgelaufene Einträge, damit der Speicher nicht unbegrenzt wächst
-// (in einer echten DB würde das ein TTL-Index übernehmen).
-function pruneExpiredResets() {
-    const now = Date.now();
-    const remaining = getPasswordResets().filter(r => !r.used && r.expiresAt > now);
-    savePasswordResets(remaining);
-    return remaining;
-}
-
-function generateRawToken() {
-    const bytes = new Uint8Array(32);
-    (window.crypto || window.msCrypto).getRandomValues(bytes);
-    let binary = '';
-    bytes.forEach(b => { binary += String.fromCharCode(b); });
-    // Base64url ohne Padding – URL-sicher als Query-Parameter
-    return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
-
-async function hashResetToken(token) {
-    if (window.crypto && window.crypto.subtle) {
-        const data = new TextEncoder().encode(token);
-        const digest = await window.crypto.subtle.digest('SHA-256', data);
-        return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, '0')).join('');
-    }
-    // Fallback ohne Web Crypto API (z.B. kein sicherer Kontext) – deutlich
-    // schwächer, nur als Notlösung. Entfällt komplett mit dem Supabase-Umstieg.
-    let hash = 0;
-    for (let i = 0; i < token.length; i++) {
-        hash = (hash * 31 + token.charCodeAt(i)) >>> 0;
-    }
-    return 'fallback-' + hash.toString(16);
-}
-
-// Rein clientseitiges Rate-Limiting, KEIN Ersatz für serverseitiges
-// Rate-Limiting (folgt mit Supabase). Absichtlich lautlos gegenüber dem
-// Nutzer, damit es nicht zur Unterscheidung "E-Mail existiert" missbraucht
-// werden kann.
-function isResetRateLimited(emailLower) {
-    try {
-        const store = JSON.parse(localStorage.getItem(RESET_RATE_LIMIT_KEY)) || {};
-        const last = store[emailLower];
-        return !!last && (Date.now() - last) < RESET_RATE_LIMIT_MS;
-    } catch {
-        return false;
-    }
-}
-
-function markResetRateLimit(emailLower) {
-    try {
-        const store = JSON.parse(localStorage.getItem(RESET_RATE_LIMIT_KEY)) || {};
-        store[emailLower] = Date.now();
-        localStorage.setItem(RESET_RATE_LIMIT_KEY, JSON.stringify(store));
-    } catch { /* Speicher voll o.ä. – kein Blocker */ }
-}
-
-// Fordert einen Passwort-Reset an. Liefert bewusst keine unterschiedlichen
-// Signale nach außen, je nachdem ob die E-Mail existiert – siehe
-// forgot-password.js, das immer dieselbe Meldung anzeigt.
-async function requestPasswordReset(identifierEmail) {
-    const emailLower = (identifierEmail || '').trim().toLowerCase();
-    if (!emailLower) return { requested: false };
-
-    if (isResetRateLimited(emailLower)) return { requested: false };
-    markResetRateLimit(emailLower);
-
-    const user = findUserByEmail(emailLower);
-    if (!user) return { requested: false }; // bewusst kein Unterschied nach außen
-
-    // Alle noch gültigen Tokens für diesen Account entwerten – es soll
-    // immer nur maximal ein aktiver Reset-Link existieren.
-    const resets = pruneExpiredResets().filter(r => r.usernameLower !== user.username.toLowerCase());
-
-    const rawToken = generateRawToken();
-    const tokenHash = await hashResetToken(rawToken);
-
-    resets.push({
-        usernameLower: user.username.toLowerCase(),
-        tokenHash,
-        expiresAt: Date.now() + RESET_TOKEN_TTL_MS,
-        used: false,
-        createdAt: Date.now()
-    });
-    savePasswordResets(resets);
-
-    const resetLink = `${window.MV_BASE}/html/reset-password.html?token=${encodeURIComponent(rawToken)}`;
-
-    // ── TODO (Resend-Integration) ────────────────────────────────────────
-    // Hier muss später ein Aufruf an eine Supabase Edge Function o.ä. hin,
-    // die den Reset-Link per Resend an user.email verschickt. Bis dahin nur
-    // Konsolen-Ausgabe zum lokalen Testen – NIEMALS so in Produktion lassen!
-    console.info('[DEV ONLY – wird durch Resend ersetzt] Passwort-Reset-Link:', resetLink);
-
-    return { requested: true, devResetLink: resetLink };
-}
-
-async function validatePasswordResetToken(token) {
-    if (!token) return { valid: false, reason: 'missing' };
-    const tokenHash = await hashResetToken(token);
-    const resets = pruneExpiredResets();
-    const record = resets.find(r => r.tokenHash === tokenHash && !r.used);
-    if (!record) return { valid: false, reason: 'invalid_or_expired' };
-    return { valid: true, usernameLower: record.usernameLower };
-}
-
-async function resetPasswordWithToken(token, newPassword) {
-    if (!newPassword || newPassword.length < 6) {
-        return { success: false, reason: 'weak_password' };
+    function getPasswordResets() {
+        try {
+            const arr = JSON.parse(localStorage.getItem(PASSWORD_RESETS_KEY));
+            return Array.isArray(arr) ? arr : [];
+        } catch {
+            return [];
+        }
     }
 
-    const check = await validatePasswordResetToken(token);
-    if (!check.valid) return { success: false, reason: check.reason };
-
-    const users = getAllUsers();
-    const idx = users.findIndex(u => u.username.toLowerCase() === check.usernameLower);
-    if (idx === -1) return { success: false, reason: 'user_not_found' };
-
-    users[idx] = { ...users[idx], password: newPassword };
-    saveAllUsers(users);
-
-    // Falls der Account gerade in diesem Browser eingeloggt ist, auch
-    // currentUser aktualisieren.
-    const current = getCurrentUser();
-    if (current && current.username.toLowerCase() === check.usernameLower) {
-        saveCurrentUser({ ...current, password: newPassword });
+    function savePasswordResets(arr) {
+        localStorage.setItem(PASSWORD_RESETS_KEY, JSON.stringify(arr));
     }
 
-    // Alle Reset-Tokens dieses Accounts entwerten – nach einem erfolgreichen
-    // Reset sind alte Links tot.
-    const remaining = getPasswordResets().filter(r => r.usernameLower !== check.usernameLower);
-    savePasswordResets(remaining);
+    // Entfernt abgelaufene Einträge, damit der Speicher nicht unbegrenzt wächst
+    // (in einer echten DB würde das ein TTL-Index übernehmen).
+    function pruneExpiredResets() {
+        const now = Date.now();
+        const remaining = getPasswordResets().filter(r => !r.used && r.expiresAt > now);
+        savePasswordResets(remaining);
+        return remaining;
+    }
 
-    return { success: true };
-}
+    function generateRawToken() {
+        const bytes = new Uint8Array(32);
+        (window.crypto || window.msCrypto).getRandomValues(bytes);
+        let binary = '';
+        bytes.forEach(b => { binary += String.fromCharCode(b); });
+        // Base64url ohne Padding – URL-sicher als Query-Parameter
+        return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    }
+
+    async function hashResetToken(token) {
+        if (window.crypto && window.crypto.subtle) {
+            const data = new TextEncoder().encode(token);
+            const digest = await window.crypto.subtle.digest('SHA-256', data);
+            return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, '0')).join('');
+        }
+        // Fallback ohne Web Crypto API (z.B. kein sicherer Kontext) – deutlich
+        // schwächer, nur als Notlösung. Entfällt komplett mit dem Supabase-Umstieg.
+        let hash = 0;
+        for (let i = 0; i < token.length; i++) {
+            hash = (hash * 31 + token.charCodeAt(i)) >>> 0;
+        }
+        return 'fallback-' + hash.toString(16);
+    }
+
+    // Rein clientseitiges Rate-Limiting, KEIN Ersatz für serverseitiges
+    // Rate-Limiting (folgt mit Supabase). Absichtlich lautlos gegenüber dem
+    // Nutzer, damit es nicht zur Unterscheidung "E-Mail existiert" missbraucht
+    // werden kann.
+    function isResetRateLimited(emailLower) {
+        try {
+            const store = JSON.parse(localStorage.getItem(RESET_RATE_LIMIT_KEY)) || {};
+            const last = store[emailLower];
+            return !!last && (Date.now() - last) < RESET_RATE_LIMIT_MS;
+        } catch {
+            return false;
+        }
+    }
+
+    function markResetRateLimit(emailLower) {
+        try {
+            const store = JSON.parse(localStorage.getItem(RESET_RATE_LIMIT_KEY)) || {};
+            store[emailLower] = Date.now();
+            localStorage.setItem(RESET_RATE_LIMIT_KEY, JSON.stringify(store));
+        } catch { /* Speicher voll o.ä. – kein Blocker */ }
+    }
+
+    // Fordert einen Passwort-Reset an. Liefert bewusst keine unterschiedlichen
+    // Signale nach außen, je nachdem ob die E-Mail existiert – siehe
+    // forgot-password.js, das immer dieselbe Meldung anzeigt.
+    async function requestPasswordReset(identifierEmail) {
+        const emailLower = (identifierEmail || '').trim().toLowerCase();
+        if (!emailLower) return { requested: false };
+
+        if (isResetRateLimited(emailLower)) return { requested: false };
+        markResetRateLimit(emailLower);
+
+        const user = findUserByEmail(emailLower);
+        if (!user) return { requested: false }; // bewusst kein Unterschied nach außen
+
+        // Alle noch gültigen Tokens für diesen Account entwerten – es soll
+        // immer nur maximal ein aktiver Reset-Link existieren.
+        const resets = pruneExpiredResets().filter(r => r.usernameLower !== user.username.toLowerCase());
+
+        const rawToken = generateRawToken();
+        const tokenHash = await hashResetToken(rawToken);
+
+        resets.push({
+            usernameLower: user.username.toLowerCase(),
+            tokenHash,
+            expiresAt: Date.now() + RESET_TOKEN_TTL_MS,
+            used: false,
+            createdAt: Date.now()
+        });
+        savePasswordResets(resets);
+
+        const resetLink = `${window.MV_BASE}/html/reset-password.html?token=${encodeURIComponent(rawToken)}`;
+
+        // ── TODO (Resend-Integration) ────────────────────────────────────────
+        // Hier muss später ein Aufruf an eine Supabase Edge Function o.ä. hin,
+        // die den Reset-Link per Resend an user.email verschickt. Bis dahin nur
+        // Konsolen-Ausgabe zum lokalen Testen – NIEMALS so in Produktion lassen!
+        console.info('[DEV ONLY – wird durch Resend ersetzt] Passwort-Reset-Link:', resetLink);
+
+        return { requested: true, devResetLink: resetLink };
+    }
+
+    async function validatePasswordResetToken(token) {
+        if (!token) return { valid: false, reason: 'missing' };
+        const tokenHash = await hashResetToken(token);
+        const resets = pruneExpiredResets();
+        const record = resets.find(r => r.tokenHash === tokenHash && !r.used);
+        if (!record) return { valid: false, reason: 'invalid_or_expired' };
+        return { valid: true, usernameLower: record.usernameLower };
+    }
+
+    async function resetPasswordWithToken(token, newPassword) {
+        if (!newPassword || newPassword.length < 6) {
+            return { success: false, reason: 'weak_password' };
+        }
+
+        const check = await validatePasswordResetToken(token);
+        if (!check.valid) return { success: false, reason: check.reason };
+
+        const users = getAllUsers();
+        const idx = users.findIndex(u => u.username.toLowerCase() === check.usernameLower);
+        if (idx === -1) return { success: false, reason: 'user_not_found' };
+
+        users[idx] = { ...users[idx], password: newPassword };
+        saveAllUsers(users);
+
+        // Falls der Account gerade in diesem Browser eingeloggt ist, auch
+        // currentUser aktualisieren.
+        const current = getCurrentUser();
+        if (current && current.username.toLowerCase() === check.usernameLower) {
+            saveCurrentUser({ ...current, password: newPassword });
+        }
+
+        // Alle Reset-Tokens dieses Accounts entwerten – nach einem erfolgreichen
+        // Reset sind alte Links tot.
+        const remaining = getPasswordResets().filter(r => r.usernameLower !== check.usernameLower);
+        savePasswordResets(remaining);
+
+        return { success: true };
+    }
+
+        // ==========================================================================
+    // EMAIL CHANGE – Verification Code Management (mirrors the password reset
+    // flow above in security level: hashed codes, expiry, rate limiting)
+    //
+    // IMPORTANT FOR THE LATER BACKEND MIGRATION (Supabase + Resend):
+    // This simulation runs entirely in the browser (localStorage) and stands
+    // in for a real server endpoint. When migrating:
+    //   1. requestEmailChange() becomes a call to a Supabase Edge Function
+    //      that generates the code server-side, stores it ONLY hashed, and
+    //      sends it to the NEW address via Resend.
+    //   2. verifyEmailChangeCode() becomes a server-side comparison of the
+    //      hashed code.
+    //   3. The console.info() call with the plaintext code MUST be removed
+    //      once Resend sends real emails.
+    // ==========================================================================
+
+    const EMAIL_CHANGES_KEY = 'mv-emailChanges';
+    const EMAIL_CHANGE_CODE_TTL_MS = 15 * 60 * 1000; // valid for 15 minutes
+    const EMAIL_CHANGE_RATE_LIMIT_MS = 60 * 1000;    // 1 request per minute per account
+    const EMAIL_CHANGE_RATE_LIMIT_KEY = 'mv-emailChangeRateLimit';
+    const EMAIL_CHANGE_MAX_ATTEMPTS = 5; // protects against guessing the 6-digit code
+
+    function getEmailChanges() {
+        try {
+            const arr = JSON.parse(localStorage.getItem(EMAIL_CHANGES_KEY));
+            return Array.isArray(arr) ? arr : [];
+        } catch {
+            return [];
+        }
+    }
+
+    function saveEmailChanges(arr) {
+        localStorage.setItem(EMAIL_CHANGES_KEY, JSON.stringify(arr));
+    }
+
+    function pruneExpiredEmailChanges() {
+        const now = Date.now();
+        const remaining = getEmailChanges().filter(r => !r.used && r.expiresAt > now);
+        saveEmailChanges(remaining);
+        return remaining;
+    }
+
+    function generateEmailCode() {
+        const bytes = new Uint32Array(1);
+        (window.crypto || window.msCrypto).getRandomValues(bytes);
+        return String(bytes[0] % 1000000).padStart(6, '0');
+    }
+
+    function isEmailChangeRateLimited(usernameLower) {
+        try {
+            const store = JSON.parse(localStorage.getItem(EMAIL_CHANGE_RATE_LIMIT_KEY)) || {};
+            const last = store[usernameLower];
+            return !!last && (Date.now() - last) < EMAIL_CHANGE_RATE_LIMIT_MS;
+        } catch {
+            return false;
+        }
+    }
+
+    function markEmailChangeRateLimit(usernameLower) {
+        try {
+            const store = JSON.parse(localStorage.getItem(EMAIL_CHANGE_RATE_LIMIT_KEY)) || {};
+            store[usernameLower] = Date.now();
+            localStorage.setItem(EMAIL_CHANGE_RATE_LIMIT_KEY, JSON.stringify(store));
+        } catch { /* storage full or disabled – not a blocker */ }
+    }
+
+    // Step 1: request a new address -> a code is sent to the NEW address
+    // (confirms the user actually has access to that inbox). The current
+    // password is checked beforehand in userArea.js (proof of account
+    // ownership); isLoggedIn() here is a second, server-side-equivalent check.
+    async function requestEmailChange(newEmail) {
+        if (!isLoggedIn()) return { success: false, reason: 'not_logged_in' };
+        const user = getCurrentUser();
+        if (!user) return { success: false, reason: 'not_logged_in' };
+
+        const emailLower = (newEmail || '').trim().toLowerCase();
+        if (!emailLower || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailLower)) {
+            return { success: false, reason: 'invalid_email' };
+        }
+        if (emailLower === (user.email || '').toLowerCase()) {
+            return { success: false, reason: 'same_email' };
+        }
+        if (isEmailTaken(emailLower, user.username)) {
+            return { success: false, reason: 'email_taken' };
+        }
+
+        const usernameLower = user.username.toLowerCase();
+        if (isEmailChangeRateLimited(usernameLower)) {
+            return { success: false, reason: 'rate_limited' };
+        }
+        markEmailChangeRateLimit(usernameLower);
+
+        // Invalidate any previous, still-open request for this account –
+        // only one active code should exist at a time.
+        const changes = pruneExpiredEmailChanges().filter(r => r.usernameLower !== usernameLower);
+
+        const rawCode = generateEmailCode();
+        const codeHash = await hashResetToken(rawCode);
+
+        changes.push({
+            usernameLower,
+            newEmail: emailLower,
+            codeHash,
+            expiresAt: Date.now() + EMAIL_CHANGE_CODE_TTL_MS,
+            used: false,
+            attempts: 0,
+            createdAt: Date.now()
+        });
+        saveEmailChanges(changes);
+
+        // ── TODO (Resend integration) ────────────────────────────────────────
+        // This needs to call a Supabase Edge Function or similar later, which
+        // sends the code to the NEW address via Resend. Console output only
+        // for local testing until then – NEVER leave this in production!
+        console.info('[DEV ONLY – will be replaced by Resend] Email change code for', emailLower + ':', rawCode);
+
+        return { success: true, devCode: rawCode, expiresInMs: EMAIL_CHANGE_CODE_TTL_MS };
+    }
+
+    // Step 2: verify the code and apply the new email address on success
+    async function verifyEmailChangeCode(code) {
+        if (!isLoggedIn()) return { success: false, reason: 'not_logged_in' };
+        const user = getCurrentUser();
+        if (!user) return { success: false, reason: 'not_logged_in' };
+
+        const usernameLower = user.username.toLowerCase();
+        const changes = pruneExpiredEmailChanges();
+        const record = changes.find(r => r.usernameLower === usernameLower && !r.used);
+
+        if (!record) return { success: false, reason: 'no_pending_request' };
+
+        if (record.attempts >= EMAIL_CHANGE_MAX_ATTEMPTS) {
+            saveEmailChanges(changes.filter(r => r !== record));
+            return { success: false, reason: 'too_many_attempts' };
+        }
+
+        const inputHash = await hashResetToken((code || '').trim());
+        if (inputHash !== record.codeHash) {
+            record.attempts += 1;
+            saveEmailChanges(changes);
+            return { success: false, reason: 'invalid_code', attemptsLeft: EMAIL_CHANGE_MAX_ATTEMPTS - record.attempts };
+        }
+
+        // Code correct -> apply the email address and remove the request
+        // (only one active attempt is allowed per account, so a separate
+        // "used" flag would be redundant).
+        saveEmailChanges(changes.filter(r => r !== record));
+        updateCurrentUser({ email: record.newEmail });
+
+        return { success: true, newEmail: record.newEmail };
+    }
+
+    // Discards a still-open request (e.g. when the user cancels the modal).
+    function cancelPendingEmailChange() {
+        const user = getCurrentUser();
+        if (!user) return;
+        const usernameLower = user.username.toLowerCase();
+        saveEmailChanges(getEmailChanges().filter(r => r.usernameLower !== usernameLower));
+    }
 
     let modalReady = false;
 
@@ -935,7 +1095,8 @@ async function resetPasswordWithToken(token, newPassword) {
         registerUser, loginUser, deleteCurrentAccount,
         getAdvancedModes, setAdvancedModes, getAdvancedMode, toggleAdvancedMode,
         bindAdvancedToggle,
-        requestPasswordReset, validatePasswordResetToken, resetPasswordWithToken
+        requestPasswordReset, validatePasswordResetToken, resetPasswordWithToken,
+        requestEmailChange, verifyEmailChangeCode, cancelPendingEmailChange
     };
 
     // ==========================================================================

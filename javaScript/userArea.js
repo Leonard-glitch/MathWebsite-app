@@ -84,6 +84,7 @@ document.addEventListener('DOMContentLoaded', () => {
     populateUserInfo();
     initPanelNav();
     initAccountPanel();
+    initChangeEmailModal();
     initSecurityPanel();
     initAppearancePanel();
     initExtrasPanel();
@@ -155,9 +156,7 @@ function populateUserInfo() {
 }
 
     const inputUsername = document.getElementById('input-username');
-    const inputEmail    = document.getElementById('input-email');
-    if (inputUsername)       inputUsername.value = name;
-    if (inputEmail && email) inputEmail.value    = email;
+    if (inputUsername) inputUsername.value = name;
 }
 
 // =============================================================================
@@ -186,9 +185,8 @@ function initAccountPanel() {
         document.getElementById('input-current-pw').value = '';
     });
 
-    saveBtn.addEventListener('click', () => {
+        saveBtn.addEventListener('click', () => {
         const newName   = document.getElementById('input-username').value.trim();
-        const newEmail  = document.getElementById('input-email').value.trim();
         const currentPw = document.getElementById('input-current-pw').value;
         const user      = window.MV.getCurrentUser();
 
@@ -211,15 +209,8 @@ function initAccountPanel() {
             shakeElement(document.getElementById('input-username'));
             return;
         }
-        if (newEmail && window.MV.isEmailTaken(newEmail, user.username)) {
-            shakeElement(document.getElementById('input-email'));
-            return;
-        }
 
-        window.MV.updateCurrentUser({
-            username: newName,
-            email: newEmail || user.email
-        });
+        window.MV.updateCurrentUser({ username: newName });
 
         populateUserInfo();
         exitEditMode(viewMode, editMode, editBtn);
@@ -234,6 +225,219 @@ function exitEditMode(viewMode, editMode, editBtn) {
     editMode.classList.add('hidden');
     viewMode.classList.remove('hidden');
     editBtn.classList.remove('hidden');
+}
+
+// =============================================================================
+// EMAIL CHANGE MODAL
+// =============================================================================
+
+function initChangeEmailModal() {
+    const modal          = document.getElementById('changeEmailModal');
+    const changeEmailBtn = document.getElementById('changeEmailBtn');
+    if (!modal || !changeEmailBtn) return;
+
+    const step1        = document.getElementById('emailStep1');
+    const step2         = document.getElementById('emailStep2');
+    const stepSuccess   = document.getElementById('emailStepSuccess');
+
+    const newEmailInput  = document.getElementById('newEmailInput');
+    const currentPwInput = document.getElementById('emailChangeCurrentPw');
+    const step1Error     = document.getElementById('emailStep1Error');
+    const sendCodeBtn    = document.getElementById('sendEmailCodeBtn');
+
+    const codeInput    = document.getElementById('emailCodeInput');
+    const step2Error   = document.getElementById('emailStep2Error');
+    const verifyBtn    = document.getElementById('verifyEmailCodeBtn');
+    const resendBtn     = document.getElementById('resendEmailCodeBtn');
+    const pendingLabel = document.getElementById('pendingNewEmailLabel');
+
+    const cancelBtn1 = document.getElementById('emailModalCancelBtn1');
+    const cancelBtn2 = document.getElementById('emailModalCancelBtn2');
+    const doneBtn    = document.getElementById('emailModalDoneBtn');
+
+    let pendingEmail   = '';
+    let resendInterval = null;
+
+    function showStep(step) {
+        [step1, step2, stepSuccess].forEach(s => s.classList.add('hidden'));
+        step.classList.remove('hidden');
+    }
+
+    function showStepError(el, msg) {
+        el.textContent = msg;
+        el.classList.remove('hidden');
+    }
+
+    function hideStepError(el) {
+        el.classList.add('hidden');
+        el.textContent = '';
+    }
+
+    function stopResendCooldown() {
+        clearInterval(resendInterval);
+        resendInterval = null;
+        resendBtn.disabled = false;
+        resendBtn.textContent = 'Resend code';
+    }
+
+    function startResendCooldown() {
+        let seconds = 60;
+        resendBtn.disabled = true;
+        resendBtn.textContent = `Resend code (${seconds}s)`;
+        resendInterval = setInterval(() => {
+            seconds -= 1;
+            if (seconds <= 0) {
+                stopResendCooldown();
+            } else {
+                resendBtn.textContent = `Resend code (${seconds}s)`;
+            }
+        }, 1000);
+    }
+
+    function resetModal() {
+        newEmailInput.value = '';
+        currentPwInput.value = '';
+        codeInput.value = '';
+        hideStepError(step1Error);
+        hideStepError(step2Error);
+        pendingEmail = '';
+        stopResendCooldown();
+        showStep(step1);
+    }
+
+    function openModal() {
+        resetModal();
+        modal.classList.remove('hidden');
+        newEmailInput.focus();
+    }
+
+    function closeModal() {
+        modal.classList.add('hidden');
+        window.MV.cancelPendingEmailChange();
+        resetModal();
+    }
+
+    changeEmailBtn.addEventListener('click', openModal);
+    cancelBtn1.addEventListener('click', closeModal);
+    cancelBtn2.addEventListener('click', closeModal);
+    doneBtn.addEventListener('click', () => {
+        modal.classList.add('hidden');
+        resetModal();
+    });
+
+    async function sendCode() {
+        hideStepError(step1Error);
+
+        const newEmail = newEmailInput.value.trim();
+        const pw       = currentPwInput.value;
+        const user     = window.MV.getCurrentUser();
+
+        if (!user) {
+            showStepError(step1Error, 'Your session has expired. Please log in again.');
+            return;
+        }
+        if (!pw || pw !== (user.password || '')) {
+            showStepError(step1Error, 'The current password is incorrect.');
+            shakeElement(currentPwInput);
+            return;
+        }
+        if (!newEmail || !newEmailInput.checkValidity()) {
+            showStepError(step1Error, 'Please enter a valid email address.');
+            shakeElement(newEmailInput);
+            return;
+        }
+        if (newEmail.toLowerCase() === (user.email || '').toLowerCase()) {
+            showStepError(step1Error, 'This is already your current email address.');
+            return;
+        }
+        if (window.MV.isEmailTaken(newEmail, user.username)) {
+            showStepError(step1Error, 'This email address is already in use.');
+            return;
+        }
+
+        sendCodeBtn.disabled = true;
+        const originalText = sendCodeBtn.textContent;
+        sendCodeBtn.textContent = 'Sending...';
+
+        const result = await window.MV.requestEmailChange(newEmail);
+
+        sendCodeBtn.disabled = false;
+        sendCodeBtn.textContent = originalText;
+
+        if (!result.success) {
+            if (result.reason === 'rate_limited') {
+                showStepError(step1Error, 'Please wait a moment before requesting another code.');
+            } else if (result.reason === 'email_taken') {
+                showStepError(step1Error, 'This email address is already in use.');
+            } else {
+                showStepError(step1Error, 'This email address could not be used. Please check it and try again.');
+            }
+            return;
+        }
+
+        pendingEmail = newEmail;
+        pendingLabel.textContent = newEmail;
+        codeInput.value = '';
+        hideStepError(step2Error);
+        showStep(step2);
+        codeInput.focus();
+        startResendCooldown();
+    }
+
+    sendCodeBtn.addEventListener('click', sendCode);
+    newEmailInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') sendCode(); });
+    currentPwInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') sendCode(); });
+
+    resendBtn.addEventListener('click', async () => {
+        if (resendBtn.disabled) return;
+        hideStepError(step2Error);
+        const result = await window.MV.requestEmailChange(pendingEmail);
+        if (!result.success) {
+            showStepError(step2Error, 'Could not resend the code right now. Please wait a moment and try again.');
+            return;
+        }
+        startResendCooldown();
+    });
+
+    async function verifyCode() {
+        hideStepError(step2Error);
+        const code = codeInput.value.trim();
+
+        if (!/^\d{6}$/.test(code)) {
+            showStepError(step2Error, 'Please enter the 6-digit code.');
+            shakeElement(codeInput);
+            return;
+        }
+
+        verifyBtn.disabled = true;
+        const result = await window.MV.verifyEmailChangeCode(code);
+        verifyBtn.disabled = false;
+
+        if (!result.success) {
+            if (result.reason === 'invalid_code') {
+                showStepError(step2Error, 'That code is incorrect. Please try again.');
+            } else if (result.reason === 'too_many_attempts') {
+                showStepError(step2Error, 'Too many incorrect attempts. Please request a new code.');
+                stopResendCooldown();
+            } else if (result.reason === 'no_pending_request') {
+                showStepError(step2Error, 'This code has expired. Please request a new one.');
+            } else {
+                showStepError(step2Error, 'Something went wrong. Please try again.');
+            }
+            shakeElement(codeInput);
+            return;
+        }
+
+        stopResendCooldown();
+        populateUserInfo();
+        showStep(stepSuccess);
+    }
+
+    verifyBtn.addEventListener('click', verifyCode);
+    codeInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') verifyCode(); });
+    codeInput.addEventListener('input', () => {
+        codeInput.value = codeInput.value.replace(/\D/g, '').slice(0, 6);
+    });
 }
 
 // =============================================================================
