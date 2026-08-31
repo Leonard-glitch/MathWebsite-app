@@ -183,8 +183,9 @@ function initAccountPanel() {
     cancelBtn.addEventListener('click', () => {
         exitEditMode(viewMode, editMode, editBtn);
         document.getElementById('input-current-pw').value = '';
+        // NEU: Setzt das Username-Inputfeld auf den aktuell gespeicherten Stand zurück
+        populateUserInfo(); 
     });
-
         saveBtn.addEventListener('click', () => {
         const newName   = document.getElementById('input-username').value.trim();
         const currentPw = document.getElementById('input-current-pw').value;
