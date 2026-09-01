@@ -388,3 +388,37 @@ section {
     margin-top: 0.15rem;
     flex-shrink: 0;
 }
+
+/* ==========================================================================
+   REVERT EMAIL CHANGE PAGE
+   ========================================================================== */
+.revertSummary {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    margin: 0.5rem 0 1.5rem;
+    padding: 1rem 1.1rem;
+    background: rgba(138, 22, 255, 0.05);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+}
+
+.revertRow {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 1rem;
+    font-size: 0.8rem;
+}
+
+.revertLabel {
+    color: var(--text-secondary);
+    flex-shrink: 0;
+}
+
+.revertValue {
+    color: var(--text-primary);
+    font-weight: 600;
+    text-align: right;
+    word-break: break-all;
+}

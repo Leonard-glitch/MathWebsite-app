@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="../css/all.min.css">
+    <link rel="stylesheet" href="../css/v4-shims.min.css">
+    <link rel="icon" type="image/png" href="../favicon-96x96.png" sizes="96x96" />
+    <link rel="icon" type="image/svg+xml" href="../favicon.svg" />
+    <link rel="shortcut icon" href="../favicon.ico" />
+    <link rel="apple-touch-icon" sizes="180x180" href="../apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-title" content="Globomath" />
+    <link rel="manifest" href="../site.webmanifest" />
+    <link rel="stylesheet" href="../css/feedback.css">
+    <link rel="stylesheet" href="../css/Common/common.css">
+    <link rel="stylesheet" href="../css/register.css">
+    <title>Revert email change – Globomath</title>
+</head>
+<body>
+    <header>
+        <nav class="navbar">
+            <a href="../index.html">
+                <img src="../pictures/WebsiteLogoImageLongImageV2.png" alt="Globomath" class="navImage">
+            </a>
+            <div class="searchContainer">
+                <input type="text" name="search" id="searchInput" placeholder="Search..." autocomplete="off">
+                <div id="searchResults"></div>
+            </div>
+            <div id="navUserArea">
+                <a href="./login.html" class="navTextBorder">Login</a>
+                <a href="./register.html" class="navTextBorder">Register</a>
+            </div>
+        </nav>
+    </header>
+
+    <main>
+        <section>
+            <div class="loginContainer" id="confirmBox">
+                <h1 class="loginTitle">Revert email change?</h1>
+                <p class="input-hint" style="margin-bottom: 1.5rem; opacity: 0.9;">
+                    We received a request to change the email on this account. If this wasn't you, you can undo it below.
+                </p>
+
+                <div class="revertSummary" id="revertSummary"></div>
+
+                <button type="button" class="xLoginBtn" id="confirmRevertBtn">Undo this change</button>
+
+                <div class="signupPrompt">
+                    Made this change yourself? <a href="../index.html" class="signupLink">No, keep my new email</a>
+                </div>
+            </div>
+
+            <div class="loginContainer" id="invalidTokenBox" style="display:none;">
+                <h1 class="loginTitle">Link invalid or expired</h1>
+                <p class="input-hint" style="margin-bottom: 1.5rem; opacity: 0.9;">
+                    This revert link is invalid, has expired, or has already been used. If you still think your account was compromised, please reset your password immediately.
+                </p>
+                <a href="./forgot-password.html" class="xLoginBtn" style="display:block; text-align:center; text-decoration:none;">Reset your password</a>
+            </div>
+
+            <div class="loginContainer" id="successBox" style="display:none;">
+                <h1 class="loginTitle">Email reverted</h1>
+                <p class="successMessagestyle"><i class="fa fa-check-circle"></i> <span id="successText"></span></p>
+                <p class="input-hint" style="margin: 1rem 0 1.5rem;">
+                    As a precaution, we also recommend changing your password.
+                </p>
+                <a href="./forgot-password.html" class="xLoginBtn" style="display:block; text-align:center; text-decoration:none;">Reset password</a>
+                <div class="signupPrompt">
+                    <a href="../index.html" class="signupLink">Back to homepage</a>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <div class="footerNav">
+            <div class="footerSocial">
+                <a href="https://www.tiktok.com/@globomath?_r=1&_t=ZN-98pHu3qNgeM" target="_blank" rel="noopener noreferrer" aria-label="TikTok"><i class="fab fa-tiktok"></i></a>
+                <a href="https://www.instagram.com/globomath?igsh=NmZzNW5mcjE3bWs5" target="_blank" rel="noopener noreferrer"><i class="fa fa-instagram"></i></a>
+                <a href="https://www.youtube.com/@Globomath" target="_blank" rel="noopener noreferrer"><i class="fa fa-youtube-play"></i></a>
+            </div>
+            <div class="leftFootersect">
+                <a href="../html/Privacypolicy.html">Privacy policy</a>
+                <button id="openFeedbackBtn">Feedback</button>
+                <a href="../html/Imprint.html">Imprint</a>
+            </div>
+            <div class="placeholderFooter">&copy;2026 Globomath</div>
+        </div>
+    </footer>
+
+    <script src="../javaScript/Common/common-login.js"></script>
+    <script src="../javaScript/revert-email-change.js"></script>
+    <script src="../javaScript/feedback.js"></script>
+    <script type="module" src="../javaScript/search.js"></script>
+</body>
+</html>

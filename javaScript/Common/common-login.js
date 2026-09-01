@@ -965,18 +965,158 @@ window.MV_BASE = ((document.currentScript || {}).src || '')
         // Code correct -> apply the email address and remove the request
         // (only one active attempt is allowed per account, so a separate
         // "used" flag would be redundant).
+        const oldEmail = user.email;
         saveEmailChanges(changes.filter(r => r !== record));
         updateCurrentUser({ email: record.newEmail });
 
-        return { success: true, newEmail: record.newEmail };
-    }
+        // Notify the OLD address so the account owner has a way back in if
+        // this change wasn't actually made by them.
+        const devRevertLink = await issueEmailRevertNotification(usernameLower, oldEmail, record.newEmail);
 
+        return { success: true, newEmail: record.newEmail, devRevertLink };
+    }
     // Discards a still-open request (e.g. when the user cancels the modal).
     function cancelPendingEmailChange() {
         const user = getCurrentUser();
         if (!user) return;
         const usernameLower = user.username.toLowerCase();
         saveEmailChanges(getEmailChanges().filter(r => r.usernameLower !== usernameLower));
+    }
+
+        // ==========================================================================
+    // EMAIL CHANGE – SECURITY NOTIFICATION + REVERT TOKEN (sent to the OLD
+    // address once a change is confirmed, not when it's merely requested –
+    // a revert link only makes sense once there's something to revert).
+    //
+    // IMPORTANT FOR THE LATER BACKEND MIGRATION (Supabase + Resend):
+    // This still runs entirely in the browser (localStorage). When migrating:
+    //   1. Generating the revert token and sending the notification move into
+    //      the same Edge Function that applies the email change server-side.
+    //   2. Suggested Postgres schema:
+    //
+    //        create table email_revert_tokens (
+    //          id          uuid primary key default gen_random_uuid(),
+    //          user_id     uuid not null references auth.users(id) on delete cascade,
+    //          old_email   text not null,
+    //          new_email   text not null,
+    //          token_hash  text not null,          -- SHA-256, never store the raw token
+    //          expires_at  timestamptz not null,
+    //          used_at     timestamptz,
+    //          created_at  timestamptz not null default now()
+    //        );
+    //        create index on email_revert_tokens (token_hash);
+    //        create index on email_revert_tokens (user_id) where used_at is null;
+    //
+    //   3. revertEmailChange() becomes a public Edge Function endpoint (no
+    //      login required, exactly like resetPasswordWithToken) that compares
+    //      the hashed token server-side.
+    //   4. The console.info() call with the plaintext link MUST be removed
+    //      once Resend sends real emails. A real notification should also log
+    //      IP/device info for context, which isn't available client-side here.
+    // ==========================================================================
+
+    const EMAIL_REVERT_TOKENS_KEY = 'mv-emailRevertTokens';
+    const EMAIL_REVERT_TOKEN_TTL_MS = 48 * 60 * 60 * 1000; // valid for 48 hours
+
+    function getEmailRevertTokens() {
+        try {
+            const arr = JSON.parse(localStorage.getItem(EMAIL_REVERT_TOKENS_KEY));
+            return Array.isArray(arr) ? arr : [];
+        } catch {
+            return [];
+        }
+    }
+
+    function saveEmailRevertTokens(arr) {
+        localStorage.setItem(EMAIL_REVERT_TOKENS_KEY, JSON.stringify(arr));
+    }
+
+    function pruneExpiredEmailRevertTokens() {
+        const now = Date.now();
+        const remaining = getEmailRevertTokens().filter(r => !r.used && r.expiresAt > now);
+        saveEmailRevertTokens(remaining);
+        return remaining;
+    }
+
+    // Called internally right after an email change is confirmed (see
+    // verifyEmailChangeCode). Generates the revert token, stores it hashed,
+    // and simulates sending the security notification to the OLD address –
+    // the one address a hijacker does NOT control.
+    async function issueEmailRevertNotification(usernameLower, oldEmail, newEmail) {
+        // Only one active revert option should exist per account at a time –
+        // an older, still-valid token would point back to a now-outdated address.
+        const tokens = pruneExpiredEmailRevertTokens().filter(r => r.usernameLower !== usernameLower);
+
+        const rawToken = generateRawToken();
+        const tokenHash = await hashResetToken(rawToken);
+
+        tokens.push({
+            usernameLower,
+            oldEmail,
+            newEmail,
+            tokenHash,
+            expiresAt: Date.now() + EMAIL_REVERT_TOKEN_TTL_MS,
+            used: false,
+            createdAt: Date.now()
+        });
+        saveEmailRevertTokens(tokens);
+
+        const revertLink = `${window.MV_BASE}/html/revert-email-change.html?token=${encodeURIComponent(rawToken)}`;
+
+        // ── TODO (Resend integration) ────────────────────────────────────────
+        // Send this to oldEmail via Resend instead of logging it.
+        console.info(
+            '[DEV ONLY – will be replaced by Resend] Security notification to', oldEmail + ':',
+            `Your Globomath email was changed from ${oldEmail} to ${newEmail}. If this wasn't you, revert it here:`,
+            revertLink
+        );
+
+        return revertLink;
+    }
+
+    async function validateEmailRevertToken(token) {
+        if (!token) return { valid: false, reason: 'missing' };
+        const tokenHash = await hashResetToken(token);
+        const tokens = pruneExpiredEmailRevertTokens();
+        const record = tokens.find(r => r.tokenHash === tokenHash && !r.used);
+        if (!record) return { valid: false, reason: 'invalid_or_expired' };
+        return { valid: true, oldEmail: record.oldEmail, newEmail: record.newEmail };
+    }
+
+    // Reverts the email address back to oldEmail. Deliberately does NOT
+    // require the person to be logged in (mirrors resetPasswordWithToken) –
+    // if the account was actually hijacked, an attacker may since have
+    // changed the password too, so the token itself must be sufficient proof.
+    async function revertEmailChange(token) {
+        const check = await validateEmailRevertToken(token);
+        if (!check.valid) return { success: false, reason: check.reason };
+
+        const tokenHash = await hashResetToken(token);
+        const tokens = pruneExpiredEmailRevertTokens();
+        const record = tokens.find(r => r.tokenHash === tokenHash && !r.used);
+        if (!record) return { success: false, reason: 'invalid_or_expired' };
+
+        const users = getAllUsers();
+        const idx = users.findIndex(u => u.username.toLowerCase() === record.usernameLower);
+        if (idx === -1) return { success: false, reason: 'user_not_found' };
+
+        users[idx] = { ...users[idx], email: record.oldEmail };
+        saveAllUsers(users);
+
+        // If this browser happens to be logged in as that account, reflect
+        // the reverted address immediately.
+        const current = getCurrentUser();
+        if (current && current.username.toLowerCase() === record.usernameLower) {
+            saveCurrentUser({ ...current, email: record.oldEmail });
+        }
+
+        // The account state was just forcibly reset – any other in-flight
+        // email change (verification code or revert token) for this account
+        // is now stale and gets discarded.
+        saveEmailRevertTokens(getEmailRevertTokens().filter(r => r.usernameLower !== record.usernameLower));
+        saveEmailChanges(getEmailChanges().filter(r => r.usernameLower !== record.usernameLower));
+
+        return { success: true, revertedToEmail: record.oldEmail };
     }
 
     let modalReady = false;
@@ -1096,7 +1236,8 @@ window.MV_BASE = ((document.currentScript || {}).src || '')
         getAdvancedModes, setAdvancedModes, getAdvancedMode, toggleAdvancedMode,
         bindAdvancedToggle,
         requestPasswordReset, validatePasswordResetToken, resetPasswordWithToken,
-        requestEmailChange, verifyEmailChangeCode, cancelPendingEmailChange
+        requestEmailChange, verifyEmailChangeCode, cancelPendingEmailChange,
+        validateEmailRevertToken, revertEmailChange
     };
 
     // ==========================================================================
