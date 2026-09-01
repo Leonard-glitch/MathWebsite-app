@@ -4,65 +4,13 @@ window.MV_BASE = ((document.currentScript || {}).src || '')
 
 (function () {
 
-    const THEMES = {
-        violet: { '--border-glow': '#8a16ff', '--accent-color': '#8a16ff', '--accent-hover': '#a142ff', '--glow-soft': 'rgba(138, 22, 255, 0.25)', '--glow-hard': 'rgba(138, 22, 255, 0.4)', '--border-accent': '#8a16ff' },
-        cyan:   { '--border-glow': '#00e5b5', '--accent-color': '#00e5b5', '--accent-hover': '#00ffcc', '--glow-soft': 'rgba(0, 229, 181, 0.25)', '--glow-hard': 'rgba(0, 229, 181, 0.4)', '--border-accent': '#00e5b5' },
-        blue:   { '--border-glow': '#1e90ff', '--accent-color': '#1e90ff', '--accent-hover': '#4dabff', '--glow-soft': 'rgba(30, 144, 255, 0.25)', '--glow-hard': 'rgba(30, 144, 255, 0.4)', '--border-accent': '#1e90ff' },
-        pink:   { '--border-glow': '#ff2d78', '--accent-color': '#ff2d78', '--accent-hover': '#ff5e97', '--glow-soft': 'rgba(255, 45, 120, 0.25)', '--glow-hard': 'rgba(255, 45, 120, 0.4)', '--border-accent': '#ff2d78' },
-        orange: { '--border-glow': '#ff6a00', '--accent-color': '#ff6a00', '--accent-hover': '#ff8c33', '--glow-soft': 'rgba(255, 106, 0, 0.25)', '--glow-hard': 'rgba(255, 106, 0, 0.4)', '--border-accent': '#ff6a00' },
-        gold:   { '--border-glow': '#f5c518', '--accent-color': '#f5c518', '--accent-hover': '#f7d04e', '--glow-soft': 'rgba(245, 197, 24, 0.25)', '--glow-hard': 'rgba(245, 197, 24, 0.4)', '--border-accent': '#f5c518' },
-    };
+    // THEMES/DESIGNS + deren Anwendung (applyTheme/applyDesign/applyFontSize)
+    // leben jetzt einzig in theme-init.js – das Script MUSS vor dem CSS im
+    // <head> jeder Seite geladen werden, um den Theme-Flash zu verhindern
+    // (siehe dort). Hier nur referenzieren, nicht neu definieren.
+    const { THEMES, getTheme, getDesign, getFontSize, applyTheme, applyDesign, applyFontSize } = window.MV_THEME;
 
-    const DESIGNS = {
-    abyss: {
-        '--bg-body':         '#09090e',
-        '--bg-surface':      '#0b1528',
-        '--bg-surface-glow': '#142036',
-        '--bg-input':        '#05060c',
-        '--bg-navbar':       'rgba(9, 9, 14, 0.75)',
-        '--border-color':    '#1c2740',
-        '--text-primary':    '#f3f4f6',
-        '--text-secondary':  '#8f8fbc',
-        '--text-muted':      '#44496a',
-        '--shadow-main':     '0 10px 30px rgba(0, 0, 0, 0.6)',
-        '--accent-live':  '#00ffcc',
-        '--accent-error': '#ff2a5f',
-        '--glow-live':    'rgba(0, 255, 204, 0.2)',
-        '--glow-error':   'rgba(255, 42, 95, 0.35)',
-    },
-    dark: {
-        '--bg-body':         '#121214',
-        '--bg-surface':      '#1a1a1e',
-        '--bg-surface-glow': '#232328',
-        '--bg-input':        '#0e0e10',
-        '--bg-navbar':       'rgba(18, 18, 20, 0.75)',
-        '--border-color':    '#2a2a30',
-        '--text-primary':    '#ffffff',
-        '--text-secondary':  '#a0a0ab',
-        '--text-muted':      '#5a5a64',
-        '--shadow-main':     '0 10px 30px rgba(0, 0, 0, 0.6)',
-        '--accent-live':  '#00ffcc',
-        '--accent-error': '#ff2a5f',
-        '--glow-live':    'rgba(0, 255, 204, 0.2)',
-        '--glow-error':   'rgba(255, 42, 95, 0.35)',
-    },
-    light: {
-        '--bg-body':         '#f8fafc',
-        '--bg-surface':      '#ffffff',
-        '--bg-surface-glow': '#f1f3f6',
-        '--bg-input':        '#f3f4f7',
-        '--bg-navbar':       'rgba(255, 255, 255, 0.75)',
-        '--border-color':    '#e2e4ea',
-        '--text-primary':    '#0f172a',
-        '--text-secondary':  '#51566b',
-        '--text-muted':      '#9598a8',
-        '--shadow-main':     '0 10px 30px rgba(15, 23, 42, 0.08)',
-        '--accent-live':  '#0c7c69',
-        '--accent-error': '#dc2626',
-        '--glow-live':    'rgba(12, 124, 105, 0.18)',
-        '--glow-error':   'rgba(220, 38, 38, 0.18)',
-    }
-};
+    // Top-10-Währungen für Finanz-Tools (weltweite Nutzung). Locale bleibt
 
     // Top-10-Währungen für Finanz-Tools (weltweite Nutzung). Locale bleibt
     // fest 'de-DE' (Zahlenformat der restlichen Seite), nur der Currency-Code
@@ -356,22 +304,15 @@ window.MV_BASE = ((document.currentScript || {}).src || '')
     // Eingeloggt -> Teil von currentUser. Nicht eingeloggt -> lokale
     // Geräte-Einstellung (eigener Key), damit es trotzdem funktioniert.
     // ==========================================================================
-    function getTheme() {
-        const u = getCurrentUser();
-        if (isLoggedIn() && u && u.theme) return u.theme;
-        return localStorage.getItem('mv-theme') || 'violet';
-    }
+        // getTheme/getFontSize/applyTheme/applyFontSize kommen aus theme-init.js
+    // (window.MV_THEME) – hier nur noch die Setter, die updateCurrentUser()
+    // brauchen und deshalb hier bleiben müssen.
     function setTheme(theme) {
         if (isLoggedIn()) {
             updateCurrentUser({ theme });
         } else {
             localStorage.setItem('mv-theme', theme);
         }
-    }
-    function getFontSize() {
-        const u = getCurrentUser();
-        if (isLoggedIn() && u && u.fontsize) return parseInt(u.fontsize, 10);
-        return parseInt(localStorage.getItem('mv-fontsize') || '20', 10);
     }
     function setFontSize(size) {
         if (isLoggedIn()) {
@@ -380,28 +321,11 @@ window.MV_BASE = ((document.currentScript || {}).src || '')
             localStorage.setItem('mv-fontsize', String(size));
         }
     }
-    function applyTheme(themeName) {
-        const vars = THEMES[themeName] || THEMES.violet;
-        Object.entries(vars).forEach(([key, val]) =>
-            document.documentElement.style.setProperty(key, val)
-        );
-    }
-    function applyFontSize(size) {
-    const isMobile = window.innerWidth <= 768;
-    const effective = isMobile ? Math.min(size, 20) : size;
-    document.documentElement.style.fontSize = `${effective}px`;
-    }
 
     // ==========================================================================
     // DESIGN (Hintergrund- und Textfarben) – gleiche Logik wie Theme, aber
-    // eigenständiger Speicher
+    // eigenständiger Speicher. getDesign/applyDesign kommen aus theme-init.js.
     // ==========================================================================
-
-    function getDesign() {
-        const u = getCurrentUser();
-        if (isLoggedIn() && u && u.design) return u.design;
-        return localStorage.getItem('mv-design') || 'abyss'; // Standard: abyss
-    }
 
     function setDesign(design) {
         if (isLoggedIn()) {
@@ -409,14 +333,6 @@ window.MV_BASE = ((document.currentScript || {}).src || '')
         } else {
             localStorage.setItem('mv-design', design);
         }
-    }
-
-    function applyDesign(designName) {
-        // Holt die CSS-Variablen aus dem DESIGNS-Objekt (Fallback zu abyss)
-        const vars = DESIGNS[designName] || DESIGNS.abyss;
-        Object.entries(vars).forEach(([key, val]) =>
-            document.documentElement.style.setProperty(key, val)
-        );
     }
 
     // ==========================================================================
@@ -1240,13 +1156,8 @@ window.MV_BASE = ((document.currentScript || {}).src || '')
         validateEmailRevertToken, revertEmailChange
     };
 
-    // ==========================================================================
-    // THEME & FONTSIZE GLOBAL ANWENDEN (auf jeder Seite, sofort)
-    // ==========================================================================
-    applyTheme(getTheme());
-    applyFontSize(getFontSize());
-    applyDesign(getDesign());
-    window.addEventListener("resize", () => applyFontSize(getFontSize()), { passive: true });
+    // theme-init.js hat Theme/Design/Fontsize bereits vor dem CSS im <head>
+    // angewendet (inkl. eigenem resize-Listener) – hier nichts mehr nötig.
 
     // ==========================================================================
     // NAVBAR: Login/Register -> Useraccount-Link, wenn eingeloggt
