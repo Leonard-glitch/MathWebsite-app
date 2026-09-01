@@ -150,13 +150,18 @@ function populateUserInfo() {
     if (viewUsername)    viewUsername.textContent     = name;
     if (viewEmail)       viewEmail.textContent        = maskEmail(email) || '–';
 
-
     if (viewMemberSince) {
-    viewMemberSince.textContent = formatMemberSince(user.createdAt);
-}
+        viewMemberSince.textContent = formatMemberSince(user.createdAt);
+    }
 
     const inputUsername = document.getElementById('input-username');
     if (inputUsername) inputUsername.value = name;
+
+    // NEU: Setze die volle, unmaskierte E-Mail in das Read-only-Feld
+    const inputEmailReadonly = document.getElementById('input-email-readonly');
+    if (inputEmailReadonly) {
+        inputEmailReadonly.value = email || '–';
+    }
 }
 
 // =============================================================================
