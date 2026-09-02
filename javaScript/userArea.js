@@ -175,6 +175,26 @@ function initAccountPanel() {
     const viewMode  = document.getElementById('accountViewMode');
     const editMode  = document.getElementById('accountEditMode');
     const toast     = document.getElementById('accountToast');
+    
+    // NEU: Referenz auf den Fehler-Container
+    const errorEl   = document.getElementById('accountError');
+
+    // Lokaler Helper für Fehlermeldungen (falls showFormError nicht global ist)
+    const displayError = (msg) => {
+        if (errorEl) {
+            errorEl.textContent = msg;
+            errorEl.style.display = 'block';
+            errorEl.classList.remove('hidden');
+        }
+    };
+    
+    const hideError = () => {
+        if (errorEl) {
+            errorEl.textContent = '';
+            errorEl.style.display = 'none';
+            errorEl.classList.add('hidden');
+        }
+    };
 
     if (!editBtn) return;
 
@@ -183,41 +203,52 @@ function initAccountPanel() {
         editMode.classList.remove('hidden');
         editBtn.classList.add('hidden');
         document.getElementById('input-current-pw').value = '';
+        hideError(); // Fehler beim Öffnen zurücksetzen
     });
 
     cancelBtn.addEventListener('click', () => {
         exitEditMode(viewMode, editMode, editBtn);
         document.getElementById('input-current-pw').value = '';
-        // NEU: Setzt das Username-Inputfeld auf den aktuell gespeicherten Stand zurück
+        hideError(); // Fehler beim Abbrechen zurücksetzen
         populateUserInfo(); 
     });
-        saveBtn.addEventListener('click', () => {
+
+    saveBtn.addEventListener('click', () => {
+        hideError(); // Alte Fehler vor erneuter Prüfung ausblenden
+        
         const newName   = document.getElementById('input-username').value.trim();
         const currentPw = document.getElementById('input-current-pw').value;
         const user      = window.MV.getCurrentUser();
 
-        // FIX: Prüfen, ob die Session noch existiert (verhindert Cross-Tab-Logout-Absturz)
         if (!user) {
             alert('Your session has expired. Please log in again.');
             window.location.href = '../html/login.html';
             return;
         }
 
+        // FEHLER 1: Falsches Passwort
         if (!currentPw || currentPw !== (user.password || '')) {
             shakeElement(document.getElementById('input-current-pw'));
+            displayError('The current password is incorrect.');
             return;
         }
+        
+        // FEHLER 2: Ungültiges Username-Format
         if (!newName || !USERNAME_REGEX.test(newName)) {
             shakeElement(document.getElementById('input-username'));
+            displayError('Only letters, numbers, _, - and . are allowed (3–20 characters).');
             return;
         }
+        
+        // FEHLER 3: Username bereits vergeben
         if (window.MV.isUsernameTaken(newName, user.username)) {
             shakeElement(document.getElementById('input-username'));
+            displayError(`The username "${newName}" is already taken.`);
             return;
         }
 
+        // Alles okay -> Speichern
         window.MV.updateCurrentUser({ username: newName });
-
         populateUserInfo();
         exitEditMode(viewMode, editMode, editBtn);
         document.getElementById('input-current-pw').value = '';
