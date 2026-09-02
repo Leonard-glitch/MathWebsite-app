@@ -8,7 +8,7 @@ const shapeConfig = {
         inputs: [
             { id: 'r', label: 'Radius (r)' },
             { id: 'd', label: 'Diameter (d)' },
-            { id: 'U', label: 'Perimeter (U)' },
+            { id: 'U', label: 'Perimeter (P)' },
             { id: 'A', label: 'Area (A)' }
         ]
     },
@@ -20,7 +20,7 @@ const shapeConfig = {
             { id: 'a', label: 'Side a' },
             { id: 'b', label: 'Side b' },
             { id: 'A', label: 'Area (A)' },
-            { id: 'U', label: 'Perimeter (U)' },
+            { id: 'U', label: 'Perimeter (P)' },
             { id: 'd', label: 'Diagonal (d)' }
         ]
     },
@@ -30,7 +30,7 @@ const shapeConfig = {
         type: 1,
         inputs: [
             { id: 'a', label: 'Side length (a)' },
-            { id: 'U', label: 'Perimeter (U)' },
+            { id: 'U', label: 'Perimeter (P)' },
             { id: 'A', label: 'Area (A)' },
             { id: 'd', label: 'Diagonal (d)' }
         ]
@@ -99,7 +99,7 @@ const shapeConfig = {
             { id: 'e', label: 'Diagonal e' },
             { id: 'f', label: 'Diagonal f' },
             { id: 'h', label: 'Height (h)' },
-            { id: 'U', label: 'Perimeter (U)' },
+            { id: 'U', label: 'Perimeter (P)' },
             { id: 'A', label: 'Area (A)' }
         ],
         redundantGroups: [['a', 'U']]
@@ -120,7 +120,7 @@ const shapeConfig = {
     cuboid: {
         name: 'Cuboid',
         dimension: '3d',
-        type: 4, // 3 degrees of freedom (a,b,c) – 2 values are never enough
+        type: 4,
         inputs: [
             { id: 'a', label: 'Length (a)' },
             { id: 'b', label: 'Width (b)' },
@@ -1634,7 +1634,7 @@ function resolveRhombus(given) {
 
     if ('U' in v && !('a' in v)) {
         v.a = v.U / 4;
-        preSteps.push(step("Side length from perimeter", "A rhombus has 4 sides of equal length:", `a = ${frac('U', '4')} = ${frac(formatNum(v.U), '4')} = ${formatNum(v.a)}`));
+        preSteps.push(step("Side length from perimeter", "A rhombus has 4 sides of equal length:", `a = ${frac('P', '4')} = ${frac(formatNum(v.U), '4')} = ${formatNum(v.a)}`));
     }
 
     let a, e, f, h, A, U;
@@ -1763,7 +1763,7 @@ function resolveRhombus(given) {
     }
 
     U = 4 * a;
-    if (!('U' in given)) steps.push(step("Perimeter", "Four equal side lengths added together:", `U = 4 · a = 4 · ${formatNum(a)} = ${formatNum(U)}`));
+    if (!('U' in given)) steps.push(step("Perimeter", "Four equal side lengths added together:", `P = 4 · a = 4 · ${formatNum(a)} = ${formatNum(U)}`));
 
     return { values: { a, e, f, h, U, A }, steps: [...preSteps, ...steps] };
 }
