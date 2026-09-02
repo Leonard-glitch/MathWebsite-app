@@ -1216,7 +1216,7 @@ window.MV_BASE = ((document.currentScript || {}).src || '')
         // Burger-Button erstellen und anhängen
         const burger = document.createElement('button');
         burger.className = 'navBurger';
-        burger.setAttribute('aria-label', 'Menü öffnen');
+        burger.setAttribute('aria-label', 'Open menu');
         burger.setAttribute('aria-expanded', 'false');
         burger.innerHTML = `
             <span class="burgerLine"></span>
@@ -1229,14 +1229,14 @@ window.MV_BASE = ((document.currentScript || {}).src || '')
             navRow.classList.add('nav-open');
             burger.classList.add('is-open');
             burger.setAttribute('aria-expanded', 'true');
-            burger.setAttribute('aria-label', 'Menü schließen');
+            burger.setAttribute('aria-label', 'Close menu');
         }
 
         function closeMenu() {
             navRow.classList.remove('nav-open');
             burger.classList.remove('is-open');
             burger.setAttribute('aria-expanded', 'false');
-            burger.setAttribute('aria-label', 'Menü öffnen');
+            burger.setAttribute('aria-label', 'Open menu');
         }
 
         burger.addEventListener('click', (e) => {
