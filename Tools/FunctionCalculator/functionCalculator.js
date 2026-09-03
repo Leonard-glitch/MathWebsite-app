@@ -44,7 +44,19 @@ const toolbarButtons = [
     
 ];
 
+window.addEventListener('pageshow', (e) => {
+ 
+        window.location.href = '../../index.html'; // Pfad ggf. anpassen
+});
 
+// ── Initialisierung ───────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+
+    // Ohne Account gibt es nichts zu verwalten -> zurück zum Login
+   
+        window.location.href = '../../index.html'; // Pfad ggf. anpassen
+        
+});    
 
 function renderToolbarButtons() {
     const container = document.querySelector('.cordSystemContainer');
