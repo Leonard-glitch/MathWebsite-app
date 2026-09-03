@@ -17,8 +17,8 @@ export const tools = [
         group:    "statistik",
         filename: "numberAnalysis.html",
         url:      `${BASE}/Tools/NumberAnalysis/numberAnalysis.html`,
-        tags:     ["numbers", "analysis", "algebra", "math", "sum", "max", "maximum", "min", "minimum", "average", "gcd", "lcm", "median", "mode", "range", "variance", "standard deviation", "statistics"],
-        info:     "Analyzes a list of numbers and provides comprehensive statistical measures such as sum, averages, median, mode, spread, variance, standard deviation, gcd, and lcm.",
+        tags: ["numbers", "analysis", "statistics", "sum", "maximum", "minimum", "average", "gcd", "lcm", "median", "mode", "range", "variance", "standard deviation", "data"],
+        info: "Calculate statistical measures for any number list. Instantly find sum, min, max, average, median, mode, range, variance, standard deviation, GCD, and LCM.",
         image: {
             big:   `${BASE}/pictures/Zahlen Analyse-appIcon.png`,
             small: `${BASE}/pictures/icons/zahlenAnalyse-icon.png`
@@ -31,7 +31,7 @@ export const tools = [
         filename: "numberSystemConverter.html",
         url:      `${BASE}/Tools/NumberSystemConverter/numberSystemConverter.html`,
         tags:     ["number system", "converter", "dual", "binary", "hex", "octal", "decimal"],
-        info:     "Converts numbers between numeral systems (base 2–20), including fractional values and full calculation steps.",
+        info: "Convert numbers between different numeral systems (base 2 to 20), including binary, hex, octal, and decimals with fractional values and calculation steps.",
         image: {
             big:   `${BASE}/pictures/Zahlensystem Umrechner-appIcon.png`,
             small: `${BASE}/pictures/icons/zsystUmrechner-icon.png`
@@ -44,7 +44,7 @@ export const tools = [
         filename: "numberSystemCalculator.html",
         url:      `${BASE}/Tools/NumberSystemCalculator/numberSystemCalculator.html`,
         tags:     ["number system", "calculator", "addition", "subtraction", "multiplication", "division", "dual"],
-        info:     "Performs basic arithmetic operations (+, −, ×, ÷) in any numeral system and shows the written calculation steps.",
+        info: "Perform basic arithmetic operations (addition, subtraction, multiplication, division) in numeral systems (base 2 to 20) with detailed step-by-step solutions.",
         image: {
             big:   `${BASE}/pictures/Zahlensystem Rechner-appIcon.png`,
             small: `${BASE}/pictures/icons/zsystRechner-icon.png`
@@ -56,8 +56,8 @@ export const tools = [
         group:    "einheiten",
         filename: "unitConverter.html",
         url:      `${BASE}/Tools/UnitConverter/unitConverter.html`,
-        tags:     ["converter", "units", "length", "weight", "temperature", "time"],
-        info:     "Versatile converter for many measurement units, including an advanced mode for international and specialized systems.",
+        tags: ["converter", "units", "length", "mass", "time", "area", "speed", "volume", "pressure", "energy", "frequency", "decimal prefixes", "plane angle", "data size", "temperature", "fuel consumption", "advanced"],
+        info: "Versatile unit converter for length, mass, time, area, speed, volume, pressure, energy, frequency, data size, plane angle, temperature, and fuel consumption.",
         image: {
             big:   `${BASE}/pictures/Einheiten Umrechner-appIcon.png`,
             small: `${BASE}/pictures/icons/einheitenUmrechner-icon.png`
@@ -69,8 +69,8 @@ export const tools = [
         group:    "arithmetik",
         filename: "percentageCalculator.html",
         url:      `${BASE}/Tools/PercentageCalculator/percentageCalculator.html`,
-        tags:     ["percent", "percentage calculation", "discount", "value added tax", "calculator", "share", "percentage", "base value", "change", "increase", "decrease", "net", "gross", "cash discount", "calculation steps", "advanced"],
-        info:     "Comprehensive percentage calculator with an advanced mode: calculates shares, percentages, base values, percentage changes, increases/decreases, VAT (net/gross), and discounts with detailed calculation steps.",
+        tags: ["percent", "percentage", "discount", "cash discount", "value added tax", "VAT", "share", "base value", "percentage change", "increase", "decrease", "net", "gross", "advanced"],
+        info: "Advanced percentage calculator. Easily calculate shares, base values, percentage changes, increases/decreases, VAT (net to gross), and discounts with steps.",
         image: {
             big:   `${BASE}/pictures/Prozentrechner-appIcon.png`,
             small: `${BASE}/pictures/icons/prozentrechner-icon.png`
@@ -82,8 +82,8 @@ export const tools = [
         group:    "arithmetik",
         filename: "fractionCalculator.html",
         url:      `${BASE}/Tools/FractionCalculator/fractionCalculator.html`,
-        tags:     ["fraction", "fraction calculator", "add", "subtract", "multiply", "divide", "simplify", "expand", "mixed numbers"],
-        info:     "Performs all basic arithmetic operations with fractions, including simplification, expansion, mixed numbers, and full calculation steps.",
+        tags: ["fraction", "add", "subtract", "multiply", "divide", "simplify", "expand", "mixed numbers", "numerator", "denominator", "math", "calculator"],
+        info: "Easily add, subtract, multiply, and divide fractions. Supports simplifying, expanding, and calculating with mixed numbers, complete with step-by-step solutions.",
         image: {
             big:   `${BASE}/pictures/Bruchrechner-appIcon.png`,
             small: `${BASE}/pictures/icons/bruchrechner-icon.png`
@@ -96,7 +96,7 @@ export const tools = [
         filename: "ratioCalculator.html",
         url:      `${BASE}/Tools/RatioCalculator/ratioCalculator.html`,
         tags:     ["ratio", "proportion", "direct proportion", "inverse proportion", "math"],
-        info:     "Calculates ratios for direct and inverse proportional relationships, including step-by-step solutions.",
+        info: "Calculate ratios for direct and inverse proportional relationships effortlessly. Includes detailed, step-by-step solutions for rule of three problems.",
         image: {
             big:   `${BASE}/pictures/Dreisatzrechner-appIcon.png`,
             small: `${BASE}/pictures/icons/meinTool-icon.png`
@@ -109,7 +109,7 @@ export const tools = [
         filename: "decimalFractionConverter.html",
         url:      `${BASE}/Tools/DecimalFractionConverter/decimalFractionConverter.html`,
         tags:     ["decimal", "fraction", "converter"],
-        info:     "Converts fractions to decimals and decimals to fractions, including step-by-step solutions.",
+        info: "Easily convert decimals to fractions and fractions to decimals. Get precise results along with detailed, step-by-step mathematical solutions.",
         image: {
             big:   `${BASE}/pictures/DezBruchConverter-appIcon.png`,
             small: `${BASE}/pictures/icons/meinTool-icon.png`
@@ -122,7 +122,7 @@ export const tools = [
         filename: "formulaTransformer.html",
         url:      `${BASE}/Tools/FormulaTransformer/formulaTransformer.html`,
         tags:     ["formula", "transformer", "algebra"],
-        info:     "Rearranges mathematical formulas, including step-by-step solutions.",
+        info: "Instantly rearrange and solve mathematical formulas for any variable. View detailed, step-by-step transformations for complex algebra problems.",
         image: {
             big:   `${BASE}/pictures/Formel Umformer-appIcon.png`,
             small: `${BASE}/pictures/icons/meinTool-icon.png`
@@ -134,8 +134,8 @@ export const tools = [
         group:    "algebra",
         filename: "equationSolver.html",
         url:      `${BASE}/Tools/EquationSolver/equationSolver.html`,
-        tags:     ["equation", "linear", "solve", "algebra", "linear equations", "method"],
-        info:     "Solves general and linear equation systems, including automatic selection of the best solving method.",
+        tags: ["equation", "linear", "solve", "algebra", "linear equations", "substitution", "addition method", "equalization", "gaussian elimination", "method"],
+        info: "Solve general and linear equation systems automatically. Get detailed, step-by-step solutions using substitution, addition, equalization, or Gaussian methods.",
         image: {
             big:   `${BASE}/pictures/Gleichungslöser-appIcon.png`,
             small: `${BASE}/pictures/icons/meinTool-icon.png`
@@ -147,8 +147,8 @@ export const tools = [
         group:    "finanzen",
         filename: "financeCalculator.html",
         url:      `${BASE}/Tools/FinanceCalculator/financeCalculator.html`,
-        tags:     ["finance", "calculator", "investment", "savings plan", "return", "inflation", "compound interest"],
-        info:     "All-in-one finance calculator with three specialized tools: calculates long-term wealth growth through a savings plan (compound interest), determines real purchasing power loss through inflation, or analyzes investment performance (ROI & CAGR) with live charts and transparent calculation steps.",
+        tags: ["finance", "investment", "savings plan", "return", "inflation", "compound interest", "wealth accumulation", "capital growth", "interest", "ROI", "currency"],
+        info: "Analyze wealth accumulation with our finance tools. Calculate compound interest for savings plans, account for inflation, and project capital growth over time.",
         image: {
             big:   `${BASE}/pictures/Finanzrechner-appIcon.png`,
             small: `${BASE}/pictures/icons/meinTool-icon.png`
@@ -160,8 +160,8 @@ export const tools = [
         group:    "geometrie",
         filename: "geometryCalculator.html",
         url:      `${BASE}/Tools/GeometryCalculator/geometryCalculator.html`,
-        tags:     ["geometry", "2d", "3d", "circle", "rectangle", "square", "triangle", "right triangle", "trapezoid", "parallelogram", "rhombus", "cube", "cuboid", "sphere", "cylinder", "cone", "square pyramid", "rectangular pyramid"],
-        info:     "Geometry calculator for 2D and 3D figures, including calculation steps and live shape previews.",
+        tags: ["geometry", "2d", "3d", "circle", "rectangle", "square", "triangle", "right triangle", "trapezoid", "parallelogram", "rhombus", "cube", "cuboid", "sphere", "cylinder", "cone", "pyramid", "volume", "area", "perimeter", "surface area"],
+        info: "Calculate area, perimeter, volume, and surface area for shapes like circles, triangles, trapezoids, cubes, cylinders, cones, and pyramids with live previews.",
         image: {
             big:   `${BASE}/pictures/Geometrie Rechner-appIcon.png`,
             small: `${BASE}/pictures/icons/meinTool-icon.png`
@@ -173,8 +173,8 @@ export const tools = [
         group:    "arithmetik",
         filename: "mathCalculator.html",
         url:      `${BASE}/Tools/MathCalculator/mathCalculator.html`,
-        tags:     ["calculator", "arithmetic", "trigonometry", "algebra", "advanced", "advanced"],
-        info:     "Scientific calculator with standard and advanced modes for complex calculations.",
+        tags: ["calculator", "arithmetic", "trigonometry", "algebra", "sin", "cos", "tan", "math", "roots", "scientific", "live result", "advanced"],
+        info: "Scientific math calculator featuring trigonometry (sin, cos, tan), roots, standard arithmetic operations, and history for complex math problems.",
         image: {
             big:   `${BASE}/pictures/Mathe Rechner-appIcon.png`,
             small: `${BASE}/pictures/icons/meinTool-icon.png`
