@@ -104,7 +104,7 @@ export const tools = [
     },
     {
         id:       "card8",
-        title:    "Decimal ↔ Fraction Converter",
+        title:    "Decimal & Fraction Converter",
         group:    "arithmetik",
         filename: "decimalFractionConverter.html",
         url:      `${BASE}/Tools/DecimalFractionConverter/decimalFractionConverter.html`,
