@@ -74,7 +74,7 @@ function createCardElement(tool, isAllToolsView = false) {
 
     card.innerHTML = `
         <div class="cardTop">
-            <img src="${tool.image.big}" class="cardImg" alt="${tool.title}">
+            <i class="fa ${tool.icon} cardIcon" aria-hidden="true"></i>
             <i class="fa fa-info-circle info"></i>
             <i class="fa ${heartClass} favorite"></i>
         </div>
