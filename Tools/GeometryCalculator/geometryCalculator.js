@@ -914,7 +914,7 @@ function step(title, text, formula, solution, isGiven = false) {
     return { title, text, formula, solution, isGiven };
 }
 
-const DISPLAY_SYMBOLS = { alpha: 'α', beta: 'β', gamma: 'γ' };
+const DISPLAY_SYMBOLS = { alpha: 'α', beta: 'β', gamma: 'γ', U: 'P' };
 function displaySymbol(id) {
     return DISPLAY_SYMBOLS[id] || id;
 }
