@@ -89,7 +89,7 @@ passwordInput.addEventListener('input', () => {
 // SUBMIT VALIDATION
 // ===========================================================================
 
-form.addEventListener('submit', (e) => {
+form.addEventListener('submit', async (e) => {
     e.preventDefault();
 
     hideMsg(usernameError);
@@ -113,7 +113,7 @@ form.addEventListener('submit', (e) => {
 
     if (valid) {
         const uname = usernameInput.value.trim();
-        const result = window.MV.loginUser(uname, passwordInput.value);
+        const result = await window.MV.loginUser(uname, passwordInput.value);
 
         if (!result.success) {
             setError(usernameInput, null);

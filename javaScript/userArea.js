@@ -210,7 +210,7 @@ function initAccountPanel() {
         populateUserInfo(); 
     });
 
-    saveBtn.addEventListener('click', () => {
+    saveBtn.addEventListener('click', async () => {
         hideError(); // Alte Fehler vor erneuter Prüfung ausblenden
         
         const newName   = document.getElementById('input-username').value.trim();
@@ -224,7 +224,8 @@ function initAccountPanel() {
         }
 
         // FEHLER 1: Falsches Passwort
-        if (!currentPw || currentPw !== (user.password || '')) {
+        const pwCheck = await window.MV.verifyCurrentPassword(currentPw);
+        if (!pwCheck.success) {
             shakeElement(document.getElementById('input-current-pw'));
             displayError('The current password is incorrect.');
             return;
@@ -252,7 +253,7 @@ function initAccountPanel() {
         }
 
         // Alles okay -> Speichern
-        window.MV.updateCurrentUser({ username: newName });
+        await window.MV.updateUsername(newName);
         populateUserInfo();
         exitEditMode(viewMode, editMode, editBtn);
         document.getElementById('input-current-pw').value = '';
@@ -377,7 +378,8 @@ function initChangeEmailModal() {
             showStepError(step1Error, 'Your session has expired. Please log in again.');
             return;
         }
-        if (!pw || pw !== (user.password || '')) {
+        const pwCheck = await window.MV.verifyCurrentPassword(pw);
+        if (!pwCheck.success) {
             showStepError(step1Error, 'The current password is incorrect.');
             shakeElement(currentPwInput);
             return;
@@ -501,7 +503,7 @@ function initSecurityPanel() {
         }
     });
 
-    saveBtn.addEventListener('click', () => {
+    saveBtn.addEventListener('click', async () => {
         const cur  = document.getElementById('sec-current-pw').value;
         const nw   = newPwInput.value;
         const conf = confPwInput.value;
@@ -516,7 +518,8 @@ function initSecurityPanel() {
             return;
         }
 
-        if (!cur || cur !== (user.password || '')) {
+        const pwCheck = await window.MV.verifyCurrentPassword(cur);
+        if (!pwCheck.success) {
             showFormError(errorEl, 'The current password is incorrect.');
             shakeElement(document.getElementById('sec-current-pw'));
             return;
@@ -532,7 +535,7 @@ function initSecurityPanel() {
             return;
         }
 
-        window.MV.updateCurrentUser({ password: nw });
+        await window.MV.updatePassword(nw);
 
         document.getElementById('sec-current-pw').value = '';
         newPwInput.value  = '';
@@ -801,8 +804,12 @@ function initDeletePanel() {
         btn.disabled = input.value !== 'DELETE';
     });
 
-   btn.addEventListener('click', () => {
-        window.MV.deleteCurrentAccount();
+   btn.addEventListener('click', async () => {
+        const result = await window.MV.deleteCurrentAccount();
+        if (!result.success) {
+            alert('Something went wrong. Please try again.');
+            return;
+        }
         alert('Account deleted. You will be redirected to the homepage.');
         window.location.href = '../index.html';
     });

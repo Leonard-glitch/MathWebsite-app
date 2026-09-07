@@ -267,7 +267,7 @@ let isSubmitting = false;
 
 // SUBMIT HANDLER
 
-form.addEventListener('submit', (e) => {
+form.addEventListener('submit', async (e) => {
     e.preventDefault();
 
     // NEU: Wenn bereits gesendet wird, sofort abbrechen!
@@ -372,7 +372,7 @@ form.addEventListener('submit', (e) => {
         }
 
         // IF EVERYTHING IS VALID: Register and log in user
-        window.MV.registerUser({
+        const result = await window.MV.registerUser({
             username: uname,
             email: emailInput.value.trim(),
             password: passwordInput.value,
@@ -391,6 +391,18 @@ form.addEventListener('submit', (e) => {
 
             createdAt: Date.now()
         });
+
+        if (!result.success) {
+            isSubmitting = false;
+            if (submitBtn) {
+                submitBtn.disabled = false;
+                submitBtn.style.cursor = '';
+                submitBtn.style.opacity = '';
+            }
+            showMsg(formError, 'Registration failed. Please try again.');
+            return;
+        }
+
         window.MV.clearGuestToolHistoryStore();
 
         let baseUrl = window.MV_BASE || ''; 

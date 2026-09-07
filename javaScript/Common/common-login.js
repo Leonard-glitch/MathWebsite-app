@@ -28,11 +28,20 @@ window.MV_BASE = ((document.currentScript || {}).src || '')
         BRL: 'Brazilian Real'
     };
 
-    // Schema für currentUser anpassen (Standard auf 'abyss')
-    const DEFAULT_USER = () => ({
+    // ── AUTH-DATEN vs. PROFIL-DATEN (Vorbereitung Supabase-Migration) ───────
+    // Spätere Zielarchitektur: DEFAULT_AUTH() -> auth.users (id, email,
+    // Passwort-Hash, created_at), DEFAULT_PROFILE() -> eigene "profiles"-
+    // Tabelle (FK auf auth.users.id). Nach außen bleibt weiterhin EIN
+    // gemergtes Objekt bestehen (DEFAULT_USER/currentUser) – keine Call-Site
+    // in den Tools oder in userArea.js muss sich dafür ändern.
+    const DEFAULT_AUTH = () => ({
         username: 'Gast',
         email: '',
         password: '',
+        createdAt: null
+    });
+
+    const DEFAULT_PROFILE = () => ({
         favoriten: [],
         pinnedGroups: [],
         containerOrders: {},
@@ -45,9 +54,13 @@ window.MV_BASE = ((document.currentScript || {}).src || '')
         liveResult: false,
         angleMode: 'deg',
         toolHistory: {},
-        isPro: false,
+        isPro: false
+    });
 
-        createdAt: null
+    // Schema für currentUser anpassen (Standard auf 'abyss')
+    const DEFAULT_USER = () => ({
+        ...DEFAULT_AUTH(),
+        ...DEFAULT_PROFILE()
     });
 
 
@@ -80,6 +93,12 @@ window.MV_BASE = ((document.currentScript || {}).src || '')
         localStorage.setItem('currentUser', JSON.stringify(user));
     }
 
+   +    // TODO (Supabase-Migration): Sobald Auth-Daten (id, email, password) und App-Daten
++    // (favoriten, theme, toolHistory, ...) getrennt sind (-> geplante "profiles"-Tabelle),
++    // macht diese Funktion nur noch ein `update` auf eine Zeile in "profiles"
++    // (RLS: id = auth.uid()). Patches, die email/password betreffen, laufen stattdessen
++    // über supabase.auth.updateUser(), da diese Felder dann gar nicht mehr auf dem
++    // Profil-Objekt liegen.
     function updateCurrentUser(patch) {
         const user = getCurrentUser() || DEFAULT_USER();
         const updated = { ...user, ...patch };
@@ -160,6 +179,15 @@ window.MV_BASE = ((document.currentScript || {}).src || '')
         return RESERVED_USERNAMES.includes(username.toLowerCase());
     }
 
+    // TODO (Supabase-Migration): Beide Prüfungen scannen aktuell das komplette lokale
+    // "allUsers"-Array. Mit Supabase werden daraus serverseitige Queries gegen die
+    // "profiles"-Tabelle (Username) bzw. auth.users/profiles (E-Mail) – z.B. eine Postgres-
+    // Funktion oder ein `select ... limit 1`, abgesichert über RLS, da ein reines
+    // clientseitiges `select *` über alle User die komplette Tabelle leaken würde.
+    // Laut Produktentscheidung bleibt die Registrierung bei direktem "bereits vergeben"-
+    // Feedback für E-Mails; der Passwort-Reset-Flow nutzt diese Funktion bewusst NICHT,
+    // um Enumeration zu vermeiden.
+    //
     // excludeUsername: erlaubt einem User, seinen EIGENEN Namen/seine
     // EIGENE Mail beim Bearbeiten zu "behalten", ohne dass er sich
     // selbst als "vergeben" meldet.
@@ -179,8 +207,12 @@ window.MV_BASE = ((document.currentScript || {}).src || '')
         );
     }
 
+    // TODO (Supabase-Migration): Wird ersetzt durch supabase.auth.signUp({ email, password })
+    // + einen Insert in die "profiles"-Tabelle (id = auth user id) für alles, was nicht
+    // Auth ist (favoriten, theme, toolHistory, ...). Das Klartext-Passwortfeld auf dem
+    // User-Objekt entfällt dann komplett – Hashing/Storage übernimmt Supabase.
     // Registriert einen neuen User in "allUsers" und loggt ihn direkt ein
-    function registerUser(userData) {
+    async function registerUser(userData) {
         const newUser = { ...DEFAULT_USER(), ...userData };
         const users = getAllUsers();
         users.push(newUser);
@@ -188,11 +220,16 @@ window.MV_BASE = ((document.currentScript || {}).src || '')
 
         saveCurrentUser(newUser);
         localStorage.setItem('isLoggedIn', 'true');
-        return newUser;
+        return { success: true, user: newUser };
     }
 
+    // TODO (Supabase-Migration): Wird ersetzt durch supabase.auth.signInWithPassword({ email, password }).
+    // Supabase Auth akzeptiert nur E-Mail als Identifier – Login per Username braucht vorher
+    // ein Lookup (z.B. profiles-Tabelle) zur Auflösung username -> email. Der Klartext-
+    // Passwortvergleich unten entfällt komplett; Supabase prüft serverseitig und liefert
+    // eine echte Session/JWT statt des isLoggedIn-Flags.
     // Prüft Zugangsdaten gegen "allUsers" und loggt bei Erfolg ein
-    function loginUser(identifier, password) {
+    async function loginUser(identifier, password) {
         const user = findUserByUsernameOrEmail(identifier);
         if (!user) return { success: false, reason: 'notfound' };
         if ((user.password || '') !== password) return { success: false, reason: 'wrongpassword' };
@@ -202,8 +239,12 @@ window.MV_BASE = ((document.currentScript || {}).src || '')
         return { success: true, user };
     }
 
+    // TODO (Supabase-Migration): Wird ersetzt durch einen Aufruf an eine Supabase Edge
+    // Function mit Service-Role (supabase.auth.admin.deleteUser(userId)) – ein Auth-User
+    // kann nicht clientseitig gelöscht werden. "on delete cascade" auf der profiles-Tabelle
+    // (und allen weiteren user-bezogenen Tabellen) räumt App-Daten dann automatisch mit auf.
     // Löscht den aktuell eingeloggten Account vollständig aus "allUsers"
-    function deleteCurrentAccount() {
+    async function deleteCurrentAccount() {
         const user = getCurrentUser();
         if (user) {
             const users = getAllUsers().filter(
@@ -213,7 +254,43 @@ window.MV_BASE = ((document.currentScript || {}).src || '')
         }
         localStorage.removeItem('currentUser');
         localStorage.removeItem('isLoggedIn');
+        return { success: true };
     }
+
+    // ==========================================================================
+    // AUTH-ACTION WRAPPERS (Vorbereitung Supabase-Migration)
+    // Bündeln die Reauth-/Update-Pfade, die userArea.js heute noch direkt über
+    // user.password-Vergleiche bzw. updateCurrentUser() abwickelt. Rückgabeform
+    // bereits an loginUser() angelehnt ({success, ...}), damit sich bei der
+    // eigentlichen Migration nur der Funktionskörper ändert, keine Call-Site.
+    // ==========================================================================
+
+    // TODO (Supabase-Migration): Wird ersetzt durch supabase.auth.signInWithPassword()
+    // mit der E-Mail des aktuellen Users (Reauth-Pattern) statt Klartextvergleich.
+    async function verifyCurrentPassword(pw) {
+        const user = getCurrentUser();
+        if (!user) return { success: false, reason: 'not_logged_in' };
+        if ((user.password || '') !== pw) return { success: false, reason: 'wrong_password' };
+        return { success: true };
+    }
+
+    // TODO (Supabase-Migration): Wird ersetzt durch ein Update der "profiles"-Tabelle
+    // (username lebt dort, nicht in auth.users).
+    async function updateUsername(name) {
+        const user = getCurrentUser();
+        if (!user) return { success: false, reason: 'not_logged_in' };
+        updateCurrentUser({ username: name });
+        return { success: true };
+    }
+
+    // TODO (Supabase-Migration): Wird ersetzt durch supabase.auth.updateUser({ password }).
+    async function updatePassword(pw) {
+        const user = getCurrentUser();
+        if (!user) return { success: false, reason: 'not_logged_in' };
+        updateCurrentUser({ password: pw });
+        return { success: true };
+    }
+
 
     // ==========================================================================
     // FAVORITEN / GRUPPEN-PINS / CONTAINER-REIHENFOLGE
@@ -599,6 +676,19 @@ window.MV_BASE = ((document.currentScript || {}).src || '')
     //      Supabase-Abfragen, die den gehashten Token serverseitig vergleichen.
     //   3. Der console.info()-Aufruf mit dem Klartext-Link MUSS entfernt
     //      werden, sobald Resend echte E-Mails verschickt.
+    //   4. Suggested Postgres schema:
+    //
+    //        create table password_resets (
+    //          id          uuid primary key default gen_random_uuid(),
+    //          user_id     uuid not null references auth.users(id) on delete cascade,
+    //          token_hash  text not null,          -- SHA-256, never store the raw token
+    //          expires_at  timestamptz not null,
+    //          used_at     timestamptz,
+    //          created_at  timestamptz not null default now()
+    //        );
+    //        create index on password_resets (token_hash);
+    //        create index on password_resets (user_id) where used_at is null;
+    //
     // ==========================================================================
 
     const PASSWORD_RESETS_KEY   = 'mv-passwordResets';
@@ -767,6 +857,20 @@ window.MV_BASE = ((document.currentScript || {}).src || '')
     //      hashed code.
     //   3. The console.info() call with the plaintext code MUST be removed
     //      once Resend sends real emails.
+    //   4. Suggested Postgres schema:
+    //
+    //        create table email_changes (
+    //          id          uuid primary key default gen_random_uuid(),
+    //          user_id     uuid not null references auth.users(id) on delete cascade,
+    //          new_email   text not null,
+    //          code_hash   text not null,          -- SHA-256, never store the raw 6-digit code
+    //          expires_at  timestamptz not null,
+    //          used_at     timestamptz,
+    //          attempts    int not null default 0,  -- guards against brute-forcing the code
+    //          created_at  timestamptz not null default now()
+    //        );
+    //        create index on email_changes (user_id) where used_at is null;
+    //
     // ==========================================================================
 
     const EMAIL_CHANGES_KEY = 'mv-emailChanges';
@@ -1168,6 +1272,7 @@ window.MV_BASE = ((document.currentScript || {}).src || '')
         isUsernameTaken, isEmailTaken,
         isUsernameFormatValid, isUsernameReserved,
         registerUser, loginUser, deleteCurrentAccount,
+        verifyCurrentPassword, updateUsername, updatePassword,
         getAdvancedModes, setAdvancedModes, getAdvancedMode, toggleAdvancedMode,
         bindAdvancedToggle,
         requestPasswordReset, validatePasswordResetToken, resetPasswordWithToken,
