@@ -142,6 +142,24 @@ window.MV_BASE = ((document.currentScript || {}).src || '')
         );
     }
 
+    // ==========================================================================
+    // USERNAME-REGELN – Single Source of Truth für Format + reservierte Namen.
+    // Wird sowohl bei der Registrierung (register.js) als auch bei der
+    // nachträglichen Username-Änderung (userArea.js) verwendet, damit beide
+    // Stellen garantiert dieselbe Regel durchsetzen.
+    // ==========================================================================
+    const USERNAME_REGEX = /^[a-zA-Z0-9_.-]{3,20}$/;
+    const RESERVED_USERNAMES = ['admin', 'test', 'max_mustermann', 'mathverse', 'moderator'];
+
+    function isUsernameFormatValid(username) {
+        return !!username && USERNAME_REGEX.test(username);
+    }
+
+    function isUsernameReserved(username) {
+        if (!username) return false;
+        return RESERVED_USERNAMES.includes(username.toLowerCase());
+    }
+
     // excludeUsername: erlaubt einem User, seinen EIGENEN Namen/seine
     // EIGENE Mail beim Bearbeiten zu "behalten", ohne dass er sich
     // selbst als "vergeben" meldet.
@@ -1148,6 +1166,7 @@ window.MV_BASE = ((document.currentScript || {}).src || '')
         getAllUsers, saveAllUsers,
         findUserByUsername, findUserByEmail, findUserByUsernameOrEmail,
         isUsernameTaken, isEmailTaken,
+        isUsernameFormatValid, isUsernameReserved,
         registerUser, loginUser, deleteCurrentAccount,
         getAdvancedModes, setAdvancedModes, getAdvancedMode, toggleAdvancedMode,
         bindAdvancedToggle,

@@ -13,9 +13,7 @@ const strengthWrapper  = document.getElementById('strengthWrapper');
 const strengthFill     = document.getElementById('strengthFill');
 const strengthLabel    = document.getElementById('strengthLabel');
 
-const TAKEN_NAMES    = ['admin', 'test', 'max_mustermann', 'mathverse', 'moderator'];
 const MIN_PW_LENGTH  = 6;
-const USERNAME_REGEX = /^[a-zA-Z0-9_.-]{3,20}$/;
 
 window.MV.redirectIfLoggedIn("../index.html");
 
@@ -84,15 +82,15 @@ function validateUsername(silent = false) {
         return false;
     }
 
-    if (!USERNAME_REGEX.test(val)) {
+    if (!window.MV.isUsernameFormatValid(val)) {
         setError(usernameInput);
         if (!silent) showMsg(usernameError, 'Only letters, numbers, _, - and . are allowed (3–20 characters).');
         return false;
     }
 
-    if (TAKEN_NAMES.includes(val.toLowerCase()) || window.MV.isUsernameTaken(val)) {
+    if (window.MV.isUsernameReserved(val) || window.MV.isUsernameTaken(val)) {
         setError(usernameInput);
-        if (!silent) showMsg(usernameError, `“${val}” is already taken.`);
+        if (!silent) showMsg(usernameError, `"${val}" is already taken.`);
         return false;
     }
 
@@ -289,14 +287,14 @@ form.addEventListener('submit', (e) => {
         showMsg(usernameError, 'Please enter a username.');
         valid = false;
         firstErrorInput = firstErrorInput || usernameInput;
-    } else if (!USERNAME_REGEX.test(uname)) {
+        } else if (!window.MV.isUsernameFormatValid(uname)) {
         setError(usernameInput);
         showMsg(usernameError, 'Only letters, numbers, _, - and . are allowed (3–20 characters).');
         valid = false;
         firstErrorInput = firstErrorInput || usernameInput;
-    } else if (TAKEN_NAMES.includes(uname.toLowerCase()) || window.MV.isUsernameTaken(uname)) {
+    } else if (window.MV.isUsernameReserved(uname) || window.MV.isUsernameTaken(uname)) {
         setError(usernameInput);
-        showMsg(usernameError, `“${uname}” is already taken.`);
+        showMsg(usernameError, `"${uname}" is already taken.`);
         valid = false;
         firstErrorInput = firstErrorInput || usernameInput;
     } else {
@@ -388,6 +386,7 @@ form.addEventListener('submit', (e) => {
             liveResult: window.MV.getLiveResult(),
             angleMode: window.MV.getAngleMode(),
             toolHistory: window.MV.getAllGuestToolHistory(),
+            toolStates: window.MV.getAllGuestToolStates(),
             isPro: false,
 
             createdAt: Date.now()

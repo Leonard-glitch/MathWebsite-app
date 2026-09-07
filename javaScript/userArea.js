@@ -8,9 +8,6 @@
 
 import { tools, groups } from './toolsCollection.js';
 
-
-const USERNAME_REGEX = /^[a-zA-Z0-9_.-]{3,20}$/;
-
 // Tools mit eigenem Advanced Mode – bei neuen Tools mit Advanced Mode hier ergänzen.
 const ADVANCED_MODE_TOOLS = [
     { key: 'einheitenUmrechner', label: 'Unit Converter', icon: 'fa-arrows-h' },
@@ -234,12 +231,19 @@ function initAccountPanel() {
         }
         
         // FEHLER 2: Ungültiges Username-Format
-        if (!newName || !USERNAME_REGEX.test(newName)) {
+        if (!newName || !window.MV.isUsernameFormatValid(newName)) {
             shakeElement(document.getElementById('input-username'));
             displayError('Only letters, numbers, _, - and . are allowed (3–20 characters).');
             return;
         }
-        
+
+        // FEHLER 2b: Reservierter Username
+        if (window.MV.isUsernameReserved(newName)) {
+            shakeElement(document.getElementById('input-username'));
+            displayError(`The username "${newName}" is reserved and cannot be used.`);
+            return;
+        }
+
         // FEHLER 3: Username bereits vergeben
         if (window.MV.isUsernameTaken(newName, user.username)) {
             shakeElement(document.getElementById('input-username'));
