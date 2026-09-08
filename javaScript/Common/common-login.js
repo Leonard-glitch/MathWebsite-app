@@ -93,12 +93,12 @@ window.MV_BASE = ((document.currentScript || {}).src || '')
         localStorage.setItem('currentUser', JSON.stringify(user));
     }
 
-   +    // TODO (Supabase-Migration): Sobald Auth-Daten (id, email, password) und App-Daten
-+    // (favoriten, theme, toolHistory, ...) getrennt sind (-> geplante "profiles"-Tabelle),
-+    // macht diese Funktion nur noch ein `update` auf eine Zeile in "profiles"
-+    // (RLS: id = auth.uid()). Patches, die email/password betreffen, laufen stattdessen
-+    // über supabase.auth.updateUser(), da diese Felder dann gar nicht mehr auf dem
-+    // Profil-Objekt liegen.
+    // TODO (Supabase-Migration): Sobald Auth-Daten (id, email, password) und App-Daten
+    // (favoriten, theme, toolHistory, ...) getrennt sind (-> geplante "profiles"-Tabelle),
+    // macht diese Funktion nur noch ein `update` auf eine Zeile in "profiles"
+    // (RLS: id = auth.uid()). Patches, die email/password betreffen, laufen stattdessen
+    // über supabase.auth.updateUser(), da diese Felder dann gar nicht mehr auf dem
+    // Profil-Objekt liegen.
     function updateCurrentUser(patch) {
         const user = getCurrentUser() || DEFAULT_USER();
         const updated = { ...user, ...patch };
