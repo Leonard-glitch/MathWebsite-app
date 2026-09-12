@@ -1,69 +1,313 @@
-
 window.MV_BASE = ((document.currentScript || {}).src || '')
     .replace(/\/javaScript\/Common\/common-login\.js([?#].*)?$/, '');
 
+/* =============================================================================
+ * VORAUSSETZUNG (muss VOR diesem Script geladen werden, in jeder HTML-Datei):
+ *
+ *   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+ *   <script src=".../javaScript/Common/theme-init.js"></script>
+ *   <script src=".../javaScript/Common/common-login.js"></script>
+ *
+ * Grund: common-login.js ist bewusst weiterhin ein klassisches <script> (kein
+ * type="module"), damit sich an der Lade-Reihenfolge/-Art der ~20 HTML-Seiten
+ * nichts ändern muss. Die UMD-Version des Supabase-Clients stellt sich dafür
+ * als window.supabase zur Verfügung.
+ *
+ * TODO (zwingend vor dem ersten Test auszufüllen):
+ * ============================================================================= */
+const MV_SUPABASE_URL = 'https://YOUR-PROJECT-REF.supabase.co';
+const MV_SUPABASE_ANON_KEY = 'YOUR-ANON-KEY';
+
 (function () {
 
-    // THEMES/DESIGNS + deren Anwendung (applyTheme/applyDesign/applyFontSize)
-    // leben jetzt einzig in theme-init.js – das Script MUSS vor dem CSS im
-    // <head> jeder Seite geladen werden, um den Theme-Flash zu verhindern
-    // (siehe dort). Hier nur referenzieren, nicht neu definieren.
-    const { THEMES, getTheme, getDesign, getFontSize, applyTheme, applyDesign, applyFontSize } = window.MV_THEME;
+    const { getTheme: getThemeInit, getDesign: getDesignInit, getFontSize: getFontSizeInit,
+            applyTheme, applyDesign, applyFontSize, THEMES } = window.MV_THEME;
 
-    // Top-10-Währungen für Finanz-Tools (weltweite Nutzung). Locale bleibt
-
-    // Top-10-Währungen für Finanz-Tools (weltweite Nutzung). Locale bleibt
-    // fest 'de-DE' (Zahlenformat der restlichen Seite), nur der Currency-Code
-    // wechselt – siehe formatCurrency() weiter unten.
     const CURRENCIES = {
-        EUR: 'Euro',
-        USD: 'US Dollar',
-        GBP: 'British Pound',
-        JPY: 'Japanese Yen',
-        CHF: 'Swiss Franc',
-        CAD: 'Canadian Dollar',
-        AUD: 'Australian Dollar',
-        CNY: 'Chinese Yuan',
-        INR: 'Indian Rupee',
-        BRL: 'Brazilian Real'
+        EUR: 'Euro', USD: 'US Dollar', GBP: 'British Pound', JPY: 'Japanese Yen',
+        CHF: 'Swiss Franc', CAD: 'Canadian Dollar', AUD: 'Australian Dollar',
+        CNY: 'Chinese Yuan', INR: 'Indian Rupee', BRL: 'Brazilian Real'
     };
 
-    // ── AUTH-DATEN vs. PROFIL-DATEN (Vorbereitung Supabase-Migration) ───────
-    // Spätere Zielarchitektur: DEFAULT_AUTH() -> auth.users (id, email,
-    // Passwort-Hash, created_at), DEFAULT_PROFILE() -> eigene "profiles"-
-    // Tabelle (FK auf auth.users.id). Nach außen bleibt weiterhin EIN
-    // gemergtes Objekt bestehen (DEFAULT_USER/currentUser) – keine Call-Site
-    // in den Tools oder in userArea.js muss sich dafür ändern.
-    const DEFAULT_AUTH = () => ({
-        username: 'Gast',
-        email: '',
-        password: '',
-        createdAt: null
+    const supabaseClient = window.supabase.createClient(MV_SUPABASE_URL, MV_SUPABASE_ANON_KEY, {
+        auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
     });
 
-    const DEFAULT_PROFILE = () => ({
-        favoriten: [],
-        pinnedGroups: [],
-        containerOrders: {},
-        advancedModes: {},
-        theme: 'violet',
-        design: 'abyss',
-        fontsize: 20,
-        currency: 'EUR',
-        decimalPlaces: 2,
-        liveResult: false,
-        angleMode: 'deg',
-        toolHistory: {},
-        isPro: false
+    // ==========================================================================
+    // CACHE / LOCALSTORAGE-MIRROR
+    // cache ist die einzige Quelle, aus der alle SYNCHRONEN Getter lesen.
+    // Beim Laden wird er sofort (synchron) aus dem localStorage-Mirror befüllt,
+    // danach im Hintergrund (asynchron) gegen Supabase abgeglichen.
+    // ==========================================================================
+
+    const CACHE_KEY = 'currentUser';       // gleicher Key wie zuvor -> theme-init.js
+    const LOGGED_IN_KEY = 'isLoggedIn';    // liest ihn direkt, braucht daher KEINE Änderung
+    const PENDING_REGISTRATION_KEY = 'mv-pending-registration';
+    const HISTORY_LIMIT = 50;
+
+    let cache = { id: null, email: null, profile: null, toolHistory: {} };
+
+    function isLoggedIn() { return !!cache.id; }
+
+    function dbRowToProfile(row) {
+        return {
+            username: row.username,
+            theme: row.theme,
+            design: row.design,
+            fontsize: row.fontsize,
+            currency: row.currency,
+            decimalPlaces: row.decimal_places,
+            liveResult: row.live_result,
+            angleMode: row.angle_mode,
+            isPro: row.is_pro,
+            favoriten: row.favorites || [],
+            pinnedGroups: row.pinned_groups || [],
+            containerOrders: row.container_orders || {},
+            advancedModes: row.advanced_modes || {},
+            toolStates: row.tool_states || {},
+            createdAt: row.created_at
+        };
+    }
+
+    // Mappt die (deutschen) camelCase-Feldnamen der App auf die englischen
+    // DB-Spaltennamen aus Schritt 1 - einzige Stelle, die diese Übersetzung kennen muss.
+    function profilePatchToDbColumns(patch) {
+        const map = {
+            username: 'username', theme: 'theme', design: 'design', fontsize: 'fontsize',
+            currency: 'currency', decimalPlaces: 'decimal_places', liveResult: 'live_result',
+            angleMode: 'angle_mode', isPro: 'is_pro', favoriten: 'favorites',
+            pinnedGroups: 'pinned_groups', containerOrders: 'container_orders',
+            advancedModes: 'advanced_modes', toolStates: 'tool_states'
+        };
+        const out = {};
+        Object.entries(patch).forEach(([key, val]) => {
+            if (map[key] !== undefined) out[map[key]] = val;
+        });
+        return out;
+    }
+
+    function loadMirrorSync() {
+        try {
+            const loggedIn = localStorage.getItem(LOGGED_IN_KEY) === 'true';
+            const stored = JSON.parse(localStorage.getItem(CACHE_KEY));
+            if (loggedIn && stored && stored.id) {
+                cache = {
+                    id: stored.id,
+                    email: stored.email || null,
+                    profile: {
+                        username: stored.username, theme: stored.theme, design: stored.design,
+                        fontsize: stored.fontsize, currency: stored.currency,
+                        decimalPlaces: stored.decimalPlaces, liveResult: stored.liveResult,
+                        angleMode: stored.angleMode, isPro: stored.isPro,
+                        favoriten: stored.favoriten || [], pinnedGroups: stored.pinnedGroups || [],
+                        containerOrders: stored.containerOrders || {},
+                        advancedModes: stored.advancedModes || {},
+                        toolStates: stored.toolStates || {}, createdAt: stored.createdAt
+                    },
+                    toolHistory: stored.toolHistory || {}
+                };
+                return;
+            }
+        } catch { /* kaputter/fehlender Mirror - als Gast starten, hydrate() korrigiert */ }
+        cache = { id: null, email: null, profile: null, toolHistory: {} };
+    }
+
+    function persistMirror() {
+        if (!cache.id || !cache.profile) {
+            localStorage.removeItem(CACHE_KEY);
+            localStorage.removeItem(LOGGED_IN_KEY);
+            return;
+        }
+        const flat = { id: cache.id, email: cache.email, ...cache.profile, toolHistory: cache.toolHistory };
+        try {
+            localStorage.setItem(CACHE_KEY, JSON.stringify(flat));
+            localStorage.setItem(LOGGED_IN_KEY, 'true');
+        } catch { /* Storage voll o.ä. - Mirror bleibt ggf. veraltet, kein harter Fehler */ }
+    }
+
+    function clearMirror() {
+        cache = { id: null, email: null, profile: null, toolHistory: {} };
+        localStorage.removeItem(CACHE_KEY);
+        localStorage.removeItem(LOGGED_IN_KEY);
+    }
+
+    // Schreibt eine Profil-Änderung SOFORT in den Cache (Optimistic Update),
+    // schickt sie parallel im Hintergrund an Supabase. Für die vielen kleinen,
+    // unkritischen Einstellungs-Writes (Theme, Favoriten, Tool-States, ...) -
+    // NICHT für sicherheitsrelevante Vorgänge (siehe registerUser/loginUser/etc.,
+    // die bewusst auf die echte Server-Antwort warten).
+    function patchProfileOptimistic(patch) {
+        Object.assign(cache.profile, patch);
+        persistMirror();
+        const dbPatch = profilePatchToDbColumns(patch);
+        supabaseClient.from('profiles').update(dbPatch).eq('id', cache.id)
+            .then(({ error }) => {
+                if (error) console.warn('[MV] Speichern fehlgeschlagen (wird beim nächsten Laden ggf. zurückgesetzt):', error.message);
+            });
+    }
+
+    // ==========================================================================
+    // HYDRATE – einmalig beim Laden, danach bei Auth-State-Änderungen
+    // ==========================================================================
+
+    async function fetchFreshState(userId, email) {
+        const [{ data: profileRow, error: profileErr }, { data: historyRows, error: historyErr }] = await Promise.all([
+            supabaseClient.from('profiles').select('*').eq('id', userId).single(),
+            supabaseClient.from('tool_history').select('*').eq('user_id', userId).order('created_at', { ascending: true })
+        ]);
+
+        if (profileErr) {
+            console.warn('[MV] Profil konnte nicht geladen werden:', profileErr.message);
+            return null;
+        }
+        if (historyErr) {
+            console.warn('[MV] Verlauf konnte nicht geladen werden:', historyErr.message);
+        }
+
+        const toolHistory = {};
+        (historyRows || []).forEach(row => {
+            if (!toolHistory[row.tool_key]) toolHistory[row.tool_key] = [];
+            toolHistory[row.tool_key].push({ id: row.id, expr: row.expression, result: row.result, timestamp: row.created_at });
+        });
+
+        return { id: userId, email, profile: dbRowToProfile(profileRow), toolHistory };
+    }
+
+    // Überträgt die bei der Registrierung übergebenen Gast-Daten (Theme,
+    // Favoriten, Tool-History, ...) auf das echte Profil. Läuft NUR einmalig,
+    // NUR wenn die E-Mail zur gerade aktiven Session passt (verhindert, dass
+    // ein Login in ein ANDERES/bestehendes Konto versehentlich Gast-Daten
+    // dieses Browsers übernimmt).
+    async function applyRegistrationPayload(userId, payload) {
+        const patch = profilePatchToDbColumns({
+            favoriten: payload.favoriten, pinnedGroups: payload.pinnedGroups,
+            containerOrders: payload.containerOrders, theme: payload.theme,
+            fontsize: payload.fontsize, currency: payload.currency,
+            decimalPlaces: payload.decimalPlaces, liveResult: payload.liveResult,
+            angleMode: payload.angleMode, toolStates: payload.toolStates, isPro: payload.isPro
+        });
+        if (Object.keys(patch).length > 0) {
+            const { error } = await supabaseClient.from('profiles').update(patch).eq('id', userId);
+            if (error) console.warn('[MV] Registrierungsdaten (Einstellungen) konnten nicht übernommen werden:', error.message);
+        }
+
+        const rows = [];
+        Object.entries(payload.toolHistory || {}).forEach(([toolKey, entries]) => {
+            (entries || []).forEach(entry => {
+                rows.push({ user_id: userId, tool_key: toolKey, expression: entry.expr, result: entry.result, created_at: entry.timestamp });
+            });
+        });
+        if (rows.length > 0) {
+            const { error } = await supabaseClient.from('tool_history').insert(rows);
+            if (error) console.warn('[MV] Registrierungsdaten (Verlauf) konnten nicht übernommen werden:', error.message);
+        }
+    }
+
+    async function applyPendingRegistrationIfMatching(userId, email) {
+        let stash;
+        try { stash = JSON.parse(localStorage.getItem(PENDING_REGISTRATION_KEY) || 'null'); } catch { stash = null; }
+        if (!stash || stash.email !== email) return;
+        // Sofort entfernen, VOR dem asynchronen Schreiben: verhindert, dass ein
+        // zweiter, parallel laufender hydrate()-Aufruf (z.B. durch den
+        // onAuthStateChange-Listener direkt nach signIn/signUp) dieselben Daten
+        // ein zweites Mal anwendet, bevor der erste Aufruf fertig ist.
+        localStorage.removeItem(PENDING_REGISTRATION_KEY);
+        await applyRegistrationPayload(userId, stash.payload);
+    }
+
+    async function hydrate() {
+        try {
+            const { data: { session } } = await supabaseClient.auth.getSession();
+
+            if (!session) {
+                if (cache.id) { clearMirror(); dispatchStateRestore(); }
+                return;
+            }
+
+            await applyPendingRegistrationIfMatching(session.user.id, session.user.email);
+
+            const fresh = await fetchFreshState(session.user.id, session.user.email);
+            if (fresh) {
+                cache = fresh;
+                persistMirror();
+                dispatchStateRestore();
+            }
+        } catch (err) {
+            // Netzwerk/Supabase nicht erreichbar: Cache bleibt auf dem Stand des
+            // localStorage-Mirrors (letzter bekannter guter Zustand) - Seite
+            // bleibt nutzbar, nur eben ohne Aktualisierung in diesem Moment.
+            console.warn('[MV] Hydrate fehlgeschlagen (evtl. offline). Nutze lokalen Cache-Stand.', err && err.message ? err.message : err);
+        }
+    }
+
+    let initialHydrateStarted = false;
+    // Wird von loginUser()/registerUser() gesetzt, unmittelbar bevor sie selbst
+    // signInWithPassword()/signUp() aufrufen: verhindert, dass der dadurch
+    // ausgelöste SIGNED_IN-Event zusätzlich zum ohnehin schon in loginUser()/
+    // registerUser() laufenden Fetch NOCH EINEN hydrate()-Durchlauf startet
+    // (sonst: doppelte profiles-/tool_history-Abfragen pro Login).
+    let skipNextAuthEvent = false;
+
+    // Für reset-password.js (Schritt 3): Supabase erkennt einen gültigen
+    // Recovery-Link selbst (detectSessionInUrl) und feuert dafür EINMALIG
+    // 'PASSWORD_RECOVERY' statt eines prüfbaren Tokens. Da dieses Event auch
+    // schon feuern kann, bevor reset-password.js seinen eigenen Listener
+    // registriert hat, wird das Ergebnis zusätzlich in einem Flag gemerkt.
+    let passwordRecoveryDetected = false;
+    function isPasswordRecoverySession() { return passwordRecoveryDetected; }
+
+    supabaseClient.auth.onAuthStateChange((event, session) => {
+        if (event === 'PASSWORD_RECOVERY') {
+            passwordRecoveryDetected = true;
+            window.dispatchEvent(new CustomEvent('mv:passwordrecovery'));
+        }
+        if (!initialHydrateStarted || event === 'INITIAL_SESSION') return;
+        if (skipNextAuthEvent && (event === 'SIGNED_IN' || event === 'SIGNED_OUT')) {
+            skipNextAuthEvent = false;
+            return;
+        }
+        if (event === 'SIGNED_OUT') {
+            if (cache.id) { clearMirror(); dispatchStateRestore(); }
+            return;
+        }
+        if ((event === 'SIGNED_IN' || event === 'USER_UPDATED') && session && session.user.id !== cache.id) {
+            hydrate();
+        }
     });
 
-    // Schema für currentUser anpassen (Standard auf 'abyss')
-    const DEFAULT_USER = () => ({
-        ...DEFAULT_AUTH(),
-        ...DEFAULT_PROFILE()
-    });
+    loadMirrorSync();
+    initialHydrateStarted = true;
+    hydrate();
 
+    // ==========================================================================
+    // GRUNDLEGENDE GETTER
+    // ==========================================================================
 
+    function getCurrentUser() {
+        if (!cache.id || !cache.profile) return null;
+        return {
+            id: cache.id, email: cache.email,
+            username: cache.profile.username, theme: cache.profile.theme, design: cache.profile.design,
+            fontsize: cache.profile.fontsize, currency: cache.profile.currency,
+            decimalPlaces: cache.profile.decimalPlaces, liveResult: cache.profile.liveResult,
+            angleMode: cache.profile.angleMode, isPro: cache.profile.isPro,
+            favoriten: cache.profile.favoriten, pinnedGroups: cache.profile.pinnedGroups,
+            containerOrders: cache.profile.containerOrders, advancedModes: cache.profile.advancedModes,
+            toolStates: cache.profile.toolStates, toolHistory: cache.toolHistory,
+            createdAt: cache.profile.createdAt
+        };
+    }
+
+    function saveCurrentUser(userLike) {
+        if (!userLike || !isLoggedIn()) return;
+        updateCurrentUser(userLike);
+    }
+
+    function updateCurrentUser(patch) {
+        if (!isLoggedIn()) return null;
+        patchProfileOptimistic(patch);
+        return getCurrentUser();
+    }
 
     function redirectIfLoggedIn(path) {
         if (!isLoggedIn()) return;
@@ -76,283 +320,228 @@ window.MV_BASE = ((document.currentScript || {}).src || '')
         }
     }
 
-    function isLoggedIn() {
-        return localStorage.getItem('isLoggedIn') === 'true' && !!localStorage.getItem('currentUser');
-    }
-
-    function getCurrentUser() {
-        try {
-            const u = JSON.parse(localStorage.getItem('currentUser'));
-            return u ? { ...DEFAULT_USER(), ...u } : null;
-        } catch {
-            return null;
-        }
-    }
-
-    function saveCurrentUser(user) {
-        localStorage.setItem('currentUser', JSON.stringify(user));
-    }
-
-    // TODO (Supabase-Migration): Sobald Auth-Daten (id, email, password) und App-Daten
-    // (favoriten, theme, toolHistory, ...) getrennt sind (-> geplante "profiles"-Tabelle),
-    // macht diese Funktion nur noch ein `update` auf eine Zeile in "profiles"
-    // (RLS: id = auth.uid()). Patches, die email/password betreffen, laufen stattdessen
-    // über supabase.auth.updateUser(), da diese Felder dann gar nicht mehr auf dem
-    // Profil-Objekt liegen.
-    function updateCurrentUser(patch) {
-        const user = getCurrentUser() || DEFAULT_USER();
-        const updated = { ...user, ...patch };
-        saveCurrentUser(updated);
-
-        // Änderungen auch in der "Datenbank" (allUsers) spiegeln
-        const users = getAllUsers();
-        const idx = users.findIndex(u => u.username.toLowerCase() === user.username.toLowerCase());
-        if (idx !== -1) {
-            users[idx] = { ...users[idx], ...patch };
-            saveAllUsers(users);
-        }
-
-        return updated;
-    }
-
-    function logout() {
-    // allUsers bleibt unberührt – Account & Daten existieren weiterhin.
-    // currentUser wird beim nächsten Login wieder aus allUsers geladen.
-    localStorage.removeItem('currentUser');
-    localStorage.removeItem('isLoggedIn');
-    }
-
-
     // ==========================================================================
-    // "DATENBANK"-SIMULATION: allUsers (alle registrierten Accounts)
-    // -> currentUser bleibt der "eingeloggte" Account, allUsers ist die
-    //    komplette User-Tabelle. Spätere echte DB kann hier 1:1 andocken.
+    // AUTH-AKTIONEN (kritisch -> KEIN Optimistic Update, echte Server-Antwort abwarten)
     // ==========================================================================
-    const ALL_USERS_KEY = 'allUsers';
 
-    function getAllUsers() {
-        try {
-            const users = JSON.parse(localStorage.getItem(ALL_USERS_KEY));
-            return Array.isArray(users) ? users : [];
-        } catch {
-            return [];
-        }
-    }
-
-    function saveAllUsers(users) {
-        localStorage.setItem(ALL_USERS_KEY, JSON.stringify(users));
-    }
-
-    function findUserByUsername(username) {
-        if (!username) return undefined;
-        return getAllUsers().find(u => u.username.toLowerCase() === username.toLowerCase());
-    }
-
-    function findUserByEmail(email) {
-        if (!email) return undefined;
-        return getAllUsers().find(u => u.email && u.email.toLowerCase() === email.toLowerCase());
-    }
-
-    function findUserByUsernameOrEmail(identifier) {
-        if (!identifier) return undefined;
-        const id = identifier.toLowerCase();
-        return getAllUsers().find(u =>
-            u.username.toLowerCase() === id || (u.email && u.email.toLowerCase() === id)
-        );
-    }
-
-    // ==========================================================================
-    // USERNAME-REGELN – Single Source of Truth für Format + reservierte Namen.
-    // Wird sowohl bei der Registrierung (register.js) als auch bei der
-    // nachträglichen Username-Änderung (userArea.js) verwendet, damit beide
-    // Stellen garantiert dieselbe Regel durchsetzen.
-    // ==========================================================================
-    const USERNAME_REGEX = /^[a-zA-Z0-9_.-]{3,20}$/;
-    const RESERVED_USERNAMES = ['admin', 'test', 'max_mustermann', 'mathverse', 'moderator'];
-
-    function isUsernameFormatValid(username) {
-        return !!username && USERNAME_REGEX.test(username);
-    }
-
-    function isUsernameReserved(username) {
-        if (!username) return false;
-        return RESERVED_USERNAMES.includes(username.toLowerCase());
-    }
-
-    // TODO (Supabase-Migration): Beide Prüfungen scannen aktuell das komplette lokale
-    // "allUsers"-Array. Mit Supabase werden daraus serverseitige Queries gegen die
-    // "profiles"-Tabelle (Username) bzw. auth.users/profiles (E-Mail) – z.B. eine Postgres-
-    // Funktion oder ein `select ... limit 1`, abgesichert über RLS, da ein reines
-    // clientseitiges `select *` über alle User die komplette Tabelle leaken würde.
-    // Laut Produktentscheidung bleibt die Registrierung bei direktem "bereits vergeben"-
-    // Feedback für E-Mails; der Passwort-Reset-Flow nutzt diese Funktion bewusst NICHT,
-    // um Enumeration zu vermeiden.
-    //
-    // excludeUsername: erlaubt einem User, seinen EIGENEN Namen/seine
-    // EIGENE Mail beim Bearbeiten zu "behalten", ohne dass er sich
-    // selbst als "vergeben" meldet.
-    function isUsernameTaken(username, excludeUsername = null) {
-        if (!username) return false;
-        return getAllUsers().some(u =>
-            u.username.toLowerCase() === username.toLowerCase() &&
-            (!excludeUsername || u.username.toLowerCase() !== excludeUsername.toLowerCase())
-        );
-    }
-
-    function isEmailTaken(email, excludeUsername = null) {
-        if (!email) return false;
-        return getAllUsers().some(u =>
-            u.email && u.email.toLowerCase() === email.toLowerCase() &&
-            (!excludeUsername || u.username.toLowerCase() !== excludeUsername.toLowerCase())
-        );
-    }
-
-    // TODO (Supabase-Migration): Wird ersetzt durch supabase.auth.signUp({ email, password })
-    // + einen Insert in die "profiles"-Tabelle (id = auth user id) für alles, was nicht
-    // Auth ist (favoriten, theme, toolHistory, ...). Das Klartext-Passwortfeld auf dem
-    // User-Objekt entfällt dann komplett – Hashing/Storage übernimmt Supabase.
-    // Registriert einen neuen User in "allUsers" und loggt ihn direkt ein
     async function registerUser(userData) {
-        const newUser = { ...DEFAULT_USER(), ...userData };
-        const users = getAllUsers();
-        users.push(newUser);
-        saveAllUsers(users);
+        const { username, email, password, ...rest } = userData;
 
-        saveCurrentUser(newUser);
-        localStorage.setItem('isLoggedIn', 'true');
-        return { success: true, user: newUser };
-    }
+        skipNextAuthEvent = true;
+        const { data, error } = await supabaseClient.auth.signUp({
+            email, password,
+            options: { data: { username } } // <- handle_new_user() liest username von hier
+        });
 
-    // TODO (Supabase-Migration): Wird ersetzt durch supabase.auth.signInWithPassword({ email, password }).
-    // Supabase Auth akzeptiert nur E-Mail als Identifier – Login per Username braucht vorher
-    // ein Lookup (z.B. profiles-Tabelle) zur Auflösung username -> email. Der Klartext-
-    // Passwortvergleich unten entfällt komplett; Supabase prüft serverseitig und liefert
-    // eine echte Session/JWT statt des isLoggedIn-Flags.
-    // Prüft Zugangsdaten gegen "allUsers" und loggt bei Erfolg ein
-    async function loginUser(identifier, password) {
-        const user = findUserByUsernameOrEmail(identifier);
-        if (!user) return { success: false, reason: 'notfound' };
-        if ((user.password || '') !== password) return { success: false, reason: 'wrongpassword' };
+        if (error) { skipNextAuthEvent = false; return { success: false, reason: error.message }; }
 
-        saveCurrentUser(user);
-        localStorage.setItem('isLoggedIn', 'true');
-        return { success: true, user };
-    }
-
-    // TODO (Supabase-Migration): Wird ersetzt durch einen Aufruf an eine Supabase Edge
-    // Function mit Service-Role (supabase.auth.admin.deleteUser(userId)) – ein Auth-User
-    // kann nicht clientseitig gelöscht werden. "on delete cascade" auf der profiles-Tabelle
-    // (und allen weiteren user-bezogenen Tabellen) räumt App-Daten dann automatisch mit auf.
-    // Löscht den aktuell eingeloggten Account vollständig aus "allUsers"
-    async function deleteCurrentAccount() {
-        const user = getCurrentUser();
-        if (user) {
-            const users = getAllUsers().filter(
-                u => u.username.toLowerCase() !== user.username.toLowerCase()
-            );
-            saveAllUsers(users);
+        if (data.session) {
+            // E-Mail-Bestätigung deaktiviert bzw. sofortige Session vorhanden:
+            // Registrierungsdaten direkt übernehmen.
+            await applyRegistrationPayload(data.user.id, rest);
+            const fresh = await fetchFreshState(data.user.id, data.user.email);
+            if (fresh) { cache = fresh; persistMirror(); dispatchStateRestore(); }
+            return { success: true, needsEmailConfirmation: false };
         }
-        localStorage.removeItem('currentUser');
-        localStorage.removeItem('isLoggedIn');
+
+        // E-Mail-Bestätigung aktiv (aktueller Stand bei dir): keine Session
+        // verfügbar, RLS würde einen Write jetzt ohnehin blocken. Payload für
+        // den ersten Login nach Bestätigung zwischenspeichern.
+        try {
+            localStorage.setItem(PENDING_REGISTRATION_KEY, JSON.stringify({ email, payload: rest }));
+        } catch { /* Storage voll o.ä. - nicht blockierend, Nutzer startet mit Standardwerten */ }
+
+        return { success: true, needsEmailConfirmation: true };
+    }
+
+    async function loginUser(identifier, password) {
+        const email = (identifier || '').trim();
+        if (!email.includes('@')) {
+            // Login nur noch per E-Mail möglich, siehe Zusammenfassung/Risiken.
+            return { success: false, reason: 'email_required' };
+        }
+
+        skipNextAuthEvent = true;
+        const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
+        if (error) { skipNextAuthEvent = false; return { success: false, reason: 'invalid_credentials' }; }
+
+        await applyPendingRegistrationIfMatching(data.user.id, data.user.email);
+        const fresh = await fetchFreshState(data.user.id, data.user.email);
+        if (fresh) { cache = fresh; persistMirror(); }
+
+        return { success: true, user: getCurrentUser() };
+    }
+
+    // Bewusst SYNCHRON gehalten (wie zuvor) - Aufrufer navigieren direkt nach
+    // dem Aufruf weg, ohne zu awaiten. Cache wird sofort geleert (optimistisch),
+    // der eigentliche Supabase-Sign-out läuft im Hintergrund weiter.
+    function logout() {
+        clearMirror();
+        dispatchStateRestore();
+        supabaseClient.auth.signOut().catch(err => console.warn('[MV] Server-Logout fehlgeschlagen:', err.message));
+    }
+
+    async function deleteCurrentAccount() {
+        if (!isLoggedIn()) return { success: false, reason: 'not_logged_in' };
+        const { error } = await supabaseClient.functions.invoke('delete-account');
+        if (error) return { success: false, reason: error.message };
+        clearMirror();
+        dispatchStateRestore();
         return { success: true };
     }
 
-    // ==========================================================================
-    // AUTH-ACTION WRAPPERS (Vorbereitung Supabase-Migration)
-    // Bündeln die Reauth-/Update-Pfade, die userArea.js heute noch direkt über
-    // user.password-Vergleiche bzw. updateCurrentUser() abwickelt. Rückgabeform
-    // bereits an loginUser() angelehnt ({success, ...}), damit sich bei der
-    // eigentlichen Migration nur der Funktionskörper ändert, keine Call-Site.
-    // ==========================================================================
-
-    // TODO (Supabase-Migration): Wird ersetzt durch supabase.auth.signInWithPassword()
-    // mit der E-Mail des aktuellen Users (Reauth-Pattern) statt Klartextvergleich.
     async function verifyCurrentPassword(pw) {
-        const user = getCurrentUser();
-        if (!user) return { success: false, reason: 'not_logged_in' };
-        if ((user.password || '') !== pw) return { success: false, reason: 'wrong_password' };
+        if (!cache.email) return { success: false, reason: 'not_logged_in' };
+        const { error } = await supabaseClient.auth.signInWithPassword({ email: cache.email, password: pw });
+        if (error) return { success: false, reason: 'wrong_password' };
         return { success: true };
     }
 
-    // TODO (Supabase-Migration): Wird ersetzt durch ein Update der "profiles"-Tabelle
-    // (username lebt dort, nicht in auth.users).
     async function updateUsername(name) {
-        const user = getCurrentUser();
-        if (!user) return { success: false, reason: 'not_logged_in' };
-        updateCurrentUser({ username: name });
+        if (!isLoggedIn()) return { success: false, reason: 'not_logged_in' };
+        const { error } = await supabaseClient.from('profiles').update({ username: name }).eq('id', cache.id);
+        if (error) return { success: false, reason: error.message };
+        cache.profile.username = name;
+        persistMirror();
         return { success: true };
     }
 
-    // TODO (Supabase-Migration): Wird ersetzt durch supabase.auth.updateUser({ password }).
     async function updatePassword(pw) {
-        const user = getCurrentUser();
-        if (!user) return { success: false, reason: 'not_logged_in' };
-        updateCurrentUser({ password: pw });
+        const { error } = await supabaseClient.auth.updateUser({ password: pw });
+        if (error) return { success: false, reason: error.message };
         return { success: true };
     }
 
+    // ==========================================================================
+    // THEME / DESIGN / FONTSIZE (Gast: localStorage, Login: Cache+Supabase)
+    // ==========================================================================
+
+    function getTheme() {
+        if (isLoggedIn() && cache.profile.theme) return cache.profile.theme;
+        return localStorage.getItem('mv-theme') || 'violet';
+    }
+    function setTheme(theme) {
+        if (isLoggedIn()) { patchProfileOptimistic({ theme }); }
+        else { localStorage.setItem('mv-theme', theme); }
+    }
+
+    function getDesign() {
+        if (isLoggedIn() && cache.profile.design) return cache.profile.design;
+        return localStorage.getItem('mv-design') || 'abyss';
+    }
+    function setDesign(design) {
+        if (isLoggedIn()) { patchProfileOptimistic({ design }); }
+        else { localStorage.setItem('mv-design', design); }
+    }
+
+    function getFontSize() {
+        if (isLoggedIn() && cache.profile.fontsize) return cache.profile.fontsize;
+        return parseInt(localStorage.getItem('mv-fontsize') || '20', 10);
+    }
+    function setFontSize(size) {
+        if (isLoggedIn()) { patchProfileOptimistic({ fontsize: size }); }
+        else { localStorage.setItem('mv-fontsize', String(size)); }
+    }
+
+    function getAngleMode() {
+        if (isLoggedIn() && cache.profile.angleMode) return cache.profile.angleMode;
+        return localStorage.getItem('mv-angleMode') || 'deg';
+    }
+    function setAngleMode(mode) {
+        if (isLoggedIn()) { patchProfileOptimistic({ angleMode: mode }); }
+        else { localStorage.setItem('mv-angleMode', mode); }
+    }
+
+    function getCurrency() {
+        if (isLoggedIn() && cache.profile.currency) return cache.profile.currency;
+        return localStorage.getItem('mv-currency') || 'EUR';
+    }
+    function setCurrency(code) {
+        if (isLoggedIn()) { patchProfileOptimistic({ currency: code }); }
+        else { localStorage.setItem('mv-currency', code); }
+    }
+    function getCurrencySymbol() {
+        const parts = new Intl.NumberFormat('de-DE', { style: 'currency', currency: getCurrency() }).formatToParts(0);
+        const symbolPart = parts.find(p => p.type === 'currency');
+        return symbolPart ? symbolPart.value : getCurrency();
+    }
+    function formatCurrency(amount) {
+        return new Intl.NumberFormat('de-DE', { style: 'currency', currency: getCurrency() }).format(amount);
+    }
+    function formatCurrencyCompact(amount) {
+        return new Intl.NumberFormat('de-DE', { style: 'currency', currency: getCurrency(), maximumFractionDigits: 0 }).format(amount);
+    }
+
+    function getDecimalPlaces() {
+        if (isLoggedIn() && cache.profile.decimalPlaces !== undefined) return parseInt(cache.profile.decimalPlaces, 10);
+        return parseInt(localStorage.getItem('mv-decimalPlaces') || '2', 10);
+    }
+    function setDecimalPlaces(count) {
+        if (isLoggedIn()) { patchProfileOptimistic({ decimalPlaces: count }); }
+        else { localStorage.setItem('mv-decimalPlaces', String(count)); }
+    }
+
+    function getLiveResult() {
+        if (isLoggedIn() && cache.profile.liveResult !== undefined) return !!cache.profile.liveResult;
+        const stored = localStorage.getItem('mv-liveResult');
+        return stored === null ? false : stored === 'true';
+    }
+    function setLiveResult(value) {
+        if (isLoggedIn()) { patchProfileOptimistic({ liveResult: value }); }
+        else { localStorage.setItem('mv-liveResult', String(!!value)); }
+    }
 
     // ==========================================================================
-    // FAVORITEN / GRUPPEN-PINS / CONTAINER-REIHENFOLGE
-    // -> nur verfügbar, wenn eingeloggt (siehe Punkt 1 der Anfrage)
+    // FAVORITEN / ANGEPINNTE GRUPPEN / CONTAINER-REIHENFOLGE
+    // (nur eingeloggt nutzbar - identisches Verhalten wie zuvor)
     // ==========================================================================
+
     function getFavorites() {
-        const u = getCurrentUser();
-        return (isLoggedIn() && u) ? (u.favoriten || []) : [];
+        return (isLoggedIn() && cache.profile) ? (cache.profile.favoriten || []) : [];
     }
     function setFavorites(arr) {
         if (!isLoggedIn()) return;
-        updateCurrentUser({ favoriten: arr });
+        patchProfileOptimistic({ favoriten: arr });
     }
     function toggleFavorite(id) {
         if (!isLoggedIn()) return false;
         const favs = getFavorites();
         const isFav = favs.includes(id);
-        const updated = isFav ? favs.filter(f => f !== id) : [...favs, id];
-        setFavorites(updated);
+        setFavorites(isFav ? favs.filter(f => f !== id) : [...favs, id]);
         return !isFav;
     }
 
     function getPinnedGroups() {
-    const u = getCurrentUser();
-    if (window.MV.isLoggedIn() && u) {
-        // Prüfen, ob der User das Array schon initialisiert hat.
-        // Wenn nicht (undefined), gib standardmäßig die Favoriten zurück.
-        return u.pinnedGroups !== undefined ? u.pinnedGroups : ["favoritenGroupStar"];
+        if (isLoggedIn() && cache.profile) {
+            return cache.profile.pinnedGroups !== undefined ? cache.profile.pinnedGroups : ['favoritenGroupStar'];
+        }
+        return ['favoritenGroupStar'];
     }
-    // Für nicht eingeloggte Gäste immer die Favoriten als angepinnt zurückgeben
-    return ["favoritenGroupStar"];
-}
     function setPinnedGroups(arr) {
         if (!isLoggedIn()) return;
-        updateCurrentUser({ pinnedGroups: arr });
+        patchProfileOptimistic({ pinnedGroups: arr });
     }
 
     function getContainerOrders() {
-        const u = getCurrentUser();
-        return (isLoggedIn() && u) ? (u.containerOrders || {}) : {};
+        return (isLoggedIn() && cache.profile) ? (cache.profile.containerOrders || {}) : {};
     }
     function setContainerOrders(obj) {
         if (!isLoggedIn()) return;
-        updateCurrentUser({ containerOrders: obj });
+        patchProfileOptimistic({ containerOrders: obj });
     }
 
+    // ==========================================================================
+    // ADVANCED MODES
+    // ==========================================================================
 
-    // ==========================================================================
-    // ADVANCED MODES – pro Tool ein eigener Eintrag, NUR eingeloggt nutzbar
-    // (gleiche Logik wie Favoriten)
-    // ==========================================================================
     function getAdvancedModes() {
-        const u = getCurrentUser();
-        return (isLoggedIn() && u) ? (u.advancedModes || {}) : {};
+        return (isLoggedIn() && cache.profile) ? (cache.profile.advancedModes || {}) : {};
     }
     function setAdvancedModes(obj) {
         if (!isLoggedIn()) return;
-        updateCurrentUser({ advancedModes: obj });
+        patchProfileOptimistic({ advancedModes: obj });
     }
-    function getAdvancedMode(key) {
-        return !!getAdvancedModes()[key];
-    }
+    function getAdvancedMode(key) { return !!getAdvancedModes()[key]; }
     function toggleAdvancedMode(key) {
         if (!isLoggedIn()) return false;
         const modes = getAdvancedModes();
@@ -361,9 +550,6 @@ window.MV_BASE = ((document.currentScript || {}).src || '')
         return newVal;
     }
 
-    // Bindet eine Advanced-Mode-Checkbox an Login-Status + eigenen Speicherplatz.
-    // key      = eindeutiger Bezeichner DIESES Tools/Switches, z.B. "einheitenUmrechner"
-    // onChange = wird nach jeder Statusänderung (auch beim Initial-Load) aufgerufen
     function bindAdvancedToggle(checkbox, key, onChange) {
         if (!checkbox) return;
         const wrapper = checkbox.closest('.advancedMode') || checkbox.parentElement;
@@ -387,221 +573,78 @@ window.MV_BASE = ((document.currentScript || {}).src || '')
         });
 
         applyState();
-
-        // Cross-Tab-Sync (Login/Logout in anderem Tab)
         window.addEventListener('storage', (e) => {
             if (e.key === 'currentUser' || e.key === 'isLoggedIn') applyState();
         });
     }
 
     // ==========================================================================
-    // THEME & SCHRIFTGRÖSSE
-    // Eingeloggt -> Teil von currentUser. Nicht eingeloggt -> lokale
-    // Geräte-Einstellung (eigener Key), damit es trotzdem funktioniert.
-    // ==========================================================================
-        // getTheme/getFontSize/applyTheme/applyFontSize kommen aus theme-init.js
-    // (window.MV_THEME) – hier nur noch die Setter, die updateCurrentUser()
-    // brauchen und deshalb hier bleiben müssen.
-    function setTheme(theme) {
-        if (isLoggedIn()) {
-            updateCurrentUser({ theme });
-        } else {
-            localStorage.setItem('mv-theme', theme);
-        }
-    }
-    function setFontSize(size) {
-        if (isLoggedIn()) {
-            updateCurrentUser({ fontsize: size });
-        } else {
-            localStorage.setItem('mv-fontsize', String(size));
-        }
-    }
-
-    // ==========================================================================
-    // DESIGN (Hintergrund- und Textfarben) – gleiche Logik wie Theme, aber
-    // eigenständiger Speicher. getDesign/applyDesign kommen aus theme-init.js.
-    // ==========================================================================
-
-    function setDesign(design) {
-        if (isLoggedIn()) {
-            updateCurrentUser({ design });
-        } else {
-            localStorage.setItem('mv-design', design);
-        }
-    }
-
-    // ==========================================================================
-    // WÄHRUNG – gleiche Logik wie Theme/Design (global, nicht pro-Tool wie die
-    // Advanced Modes), damit künftige Finanz-Tools dieselbe Einstellung nutzen.
-    // ==========================================================================
-
-    function getCurrency() {
-        const u = getCurrentUser();
-        if (isLoggedIn() && u && u.currency) return u.currency;
-        return localStorage.getItem('mv-currency') || 'EUR';
-    }
-
-    function setCurrency(code) {
-        if (isLoggedIn()) {
-            updateCurrentUser({ currency: code });
-        } else {
-            localStorage.setItem('mv-currency', code);
-        }
-    }
-
-    // Reines Symbol/Kürzel der aktuellen Währung (z.B. "€", "$") – für
-    // Einheiten-Labels neben Eingabefeldern, ohne vollen Zahlenwert.
-    function getCurrencySymbol() {
-        const parts = new Intl.NumberFormat('de-DE', { style: 'currency', currency: getCurrency() }).formatToParts(0);
-        const symbolPart = parts.find(p => p.type === 'currency');
-        return symbolPart ? symbolPart.value : getCurrency();
-    }
-
-    // Formatiert einen Betrag in der gespeicherten Währung. Locale bleibt
-    // 'de-DE'; Nachkommastellen richten sich nach der jeweiligen Währung
-    // (z.B. 0 bei Yen), statt sie hart auf 2 zu erzwingen.
-    function formatCurrency(amount) {
-        return new Intl.NumberFormat('de-DE', { style: 'currency', currency: getCurrency() }).format(amount);
-    }
-
-    // Kompakte Variante ohne Nachkommastellen, für Achsenbeschriftungen/Range-Labels.
-    function formatCurrencyCompact(amount) {
-        return new Intl.NumberFormat('de-DE', { style: 'currency', currency: getCurrency(), maximumFractionDigits: 0 }).format(amount);
-    }
-
-    // ==========================================================================
-    // NACHKOMMASTELLEN (Geometrie Rechner u.a.) – gleiche Logik wie Währung
-    // ==========================================================================
-
-    function getDecimalPlaces() {
-        const u = getCurrentUser();
-        if (isLoggedIn() && u && u.decimalPlaces !== undefined) return parseInt(u.decimalPlaces, 10);
-        return parseInt(localStorage.getItem('mv-decimalPlaces') || '2', 10);
-    }
-
-    function setDecimalPlaces(count) {
-        if (isLoggedIn()) {
-            updateCurrentUser({ decimalPlaces: count });
-        } else {
-            localStorage.setItem('mv-decimalPlaces', String(count));
-        }
-    }
-
-    // ==========================================================================
-    // TOOL-ZUSTAND (z.B. zuletzt gewählte Einheiten/Kategorien pro Tool) –
-    // gleiche Login/Gast-Logik wie Währung/Nachkommastellen, aber generisch:
-    // jedes Tool bekommt unter seinem eigenen Key ein beliebiges,
-    // JSON-serialisierbares Objekt.
+    // TOOL STATES
     // ==========================================================================
 
     function getToolState(toolKey, fallback = null) {
         if (isLoggedIn()) {
-            const u = getCurrentUser();
-            return (u && u.toolStates && u.toolStates[toolKey] !== undefined) ? u.toolStates[toolKey] : fallback;
+            return (cache.profile && cache.profile.toolStates && cache.profile.toolStates[toolKey] !== undefined)
+                ? cache.profile.toolStates[toolKey] : fallback;
         }
         try {
             const raw = localStorage.getItem('mv-toolstate-' + toolKey);
             return raw !== null ? JSON.parse(raw) : fallback;
-        } catch {
-            return fallback;
-        }
+        } catch { return fallback; }
     }
-
     function setToolState(toolKey, stateObj) {
         if (isLoggedIn()) {
-            const u = getCurrentUser() || DEFAULT_USER();
-            const toolStates = { ...(u.toolStates || {}), [toolKey]: stateObj };
-            updateCurrentUser({ toolStates });
+            const toolStates = { ...(cache.profile.toolStates || {}), [toolKey]: stateObj };
+            patchProfileOptimistic({ toolStates });
         } else {
-            try {
-                localStorage.setItem('mv-toolstate-' + toolKey, JSON.stringify(stateObj));
-            } catch {
-                /* Speicher voll oder deaktiviert – kein Blocker */
-            }
+            try { localStorage.setItem('mv-toolstate-' + toolKey, JSON.stringify(stateObj)); } catch { /* Storage voll o.ä. */ }
         }
     }
-
-    // Liest alle als Gast gespeicherten Tool-Zustände aus localStorage – wird
-    // bei der Registrierung genutzt, um sie in den neuen Account zu übernehmen
-    // (gleiches Migrations-Prinzip wie bei Währung/Nachkommastellen in register.js).
     function getAllGuestToolStates() {
         const result = {};
         for (let i = 0; i < localStorage.length; i++) {
             const key = localStorage.key(i);
             if (!key || !key.startsWith('mv-toolstate-')) continue;
-            try {
-                result[key.slice('mv-toolstate-'.length)] = JSON.parse(localStorage.getItem(key));
-            } catch {
-                /* einzelner defekter Eintrag – überspringen statt Migration abzubrechen */
-            }
+            try { result[key.slice('mv-toolstate-'.length)] = JSON.parse(localStorage.getItem(key)); } catch { /* defekter Eintrag - überspringen */ }
         }
         return result;
     }
 
-
-    function getLiveResult() {
-        const u = getCurrentUser();
-        if (isLoggedIn() && u && u.liveResult !== undefined) return !!u.liveResult;
-        const stored = localStorage.getItem('mv-liveResult');
-        return stored === null ? false : stored === 'true';
-    }
-
-    function setLiveResult(value) {
-        if (isLoggedIn()) {
-            updateCurrentUser({ liveResult: value });
-        } else {
-            localStorage.setItem('mv-liveResult', String(!!value));
-        }
-    }
-
-    function getAngleMode() {
-        const u = getCurrentUser();
-        if (isLoggedIn() && u && u.angleMode) return u.angleMode;
-        return localStorage.getItem('mv-angleMode') || 'deg';
-    }
-
-    function setAngleMode(mode) {
-        if (isLoggedIn()) {
-            updateCurrentUser({ angleMode: mode });
-        } else {
-            localStorage.setItem('mv-angleMode', mode);
-        }
-    }
+    // ==========================================================================
+    // TOOL HISTORY (Gast: unverändert localStorage / Login: Cache + tool_history)
+    // ==========================================================================
 
     const GUEST_HISTORY_KEY = 'mv-toolHistory';
-    const HISTORY_LIMIT = 50;
 
     function getGuestToolHistoryStore() {
         try {
             const store = JSON.parse(localStorage.getItem(GUEST_HISTORY_KEY));
             return (store && typeof store === 'object') ? store : {};
-        } catch {
-            return {};
-        }
+        } catch { return {}; }
     }
-
     function saveGuestToolHistoryStore(store) {
         localStorage.setItem(GUEST_HISTORY_KEY, JSON.stringify(store));
     }
+    function getAllGuestToolHistory() { return getGuestToolHistoryStore(); }
+    function clearGuestToolHistoryStore() { localStorage.removeItem(GUEST_HISTORY_KEY); }
 
-    // Verlauf wird IMMER aufgezeichnet, unabhängig vom Login-Status – nur das
-    // ANZEIGEN ist login-abhängig (Prüfung erfolgt Tool-seitig, siehe matheRechner.js).
     function getToolHistory(key) {
-        if (isLoggedIn()) {
-            const u = getCurrentUser();
-            return (u && u.toolHistory && u.toolHistory[key]) || [];
-        }
+        if (isLoggedIn()) return cache.toolHistory[key] || [];
         return getGuestToolHistoryStore()[key] || [];
     }
 
     function addToolHistoryEntry(key, entry) {
-        const fullEntry = { id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, ...entry };
+        const fullEntry = {
+            id: (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            ...entry
+        };
 
         if (isLoggedIn()) {
-            const u = getCurrentUser();
-            const history = { ...(u.toolHistory || {}) };
-            history[key] = [...(history[key] || []), fullEntry].slice(-HISTORY_LIMIT);
-            updateCurrentUser({ toolHistory: history });
+            cache.toolHistory[key] = [...(cache.toolHistory[key] || []), fullEntry].slice(-HISTORY_LIMIT);
+            supabaseClient.from('tool_history').insert({
+                id: fullEntry.id, user_id: cache.id, tool_key: key,
+                expression: fullEntry.expr, result: fullEntry.result, created_at: fullEntry.timestamp
+            }).then(({ error }) => { if (error) console.warn('[MV] Verlaufseintrag konnte nicht gespeichert werden:', error.message); });
         } else {
             const store = getGuestToolHistoryStore();
             store[key] = [...(store[key] || []), fullEntry].slice(-HISTORY_LIMIT);
@@ -612,10 +655,9 @@ window.MV_BASE = ((document.currentScript || {}).src || '')
 
     function deleteToolHistoryEntry(key, id) {
         if (isLoggedIn()) {
-            const u = getCurrentUser();
-            const history = { ...(u.toolHistory || {}) };
-            history[key] = (history[key] || []).filter(e => e.id !== id);
-            updateCurrentUser({ toolHistory: history });
+            cache.toolHistory[key] = (cache.toolHistory[key] || []).filter(e => e.id !== id);
+            supabaseClient.from('tool_history').delete().eq('id', id).eq('user_id', cache.id)
+                .then(({ error }) => { if (error) console.warn('[MV] Löschen fehlgeschlagen:', error.message); });
         } else {
             const store = getGuestToolHistoryStore();
             store[key] = (store[key] || []).filter(e => e.id !== id);
@@ -625,10 +667,9 @@ window.MV_BASE = ((document.currentScript || {}).src || '')
 
     function clearToolHistory(key) {
         if (isLoggedIn()) {
-            const u = getCurrentUser();
-            const history = { ...(u.toolHistory || {}) };
-            history[key] = [];
-            updateCurrentUser({ toolHistory: history });
+            cache.toolHistory[key] = [];
+            supabaseClient.from('tool_history').delete().eq('user_id', cache.id).eq('tool_key', key)
+                .then(({ error }) => { if (error) console.warn('[MV] Verlauf löschen fehlgeschlagen:', error.message); });
         } else {
             const store = getGuestToolHistoryStore();
             store[key] = [];
@@ -636,19 +677,32 @@ window.MV_BASE = ((document.currentScript || {}).src || '')
         }
     }
 
-    // Für die Registrierung: kompletter Gast-Verlauf aller Tools zur Übernahme in den neuen Account.
-    function getAllGuestToolHistory() {
-        return getGuestToolHistoryStore();
-    }
+    // ==========================================================================
+    // USERNAME-PRÜFUNG
+    // ==========================================================================
 
-    function clearGuestToolHistoryStore() {
-        localStorage.removeItem(GUEST_HISTORY_KEY);
+    const USERNAME_REGEX = /^[a-zA-Z0-9_.-]{3,20}$/;
+    const RESERVED_USERNAMES = ['admin', 'test', 'max_mustermann', 'mathverse', 'moderator'];
+
+    function isUsernameFormatValid(username) { return !!username && USERNAME_REGEX.test(username); }
+    function isUsernameReserved(username) { return !!username && RESERVED_USERNAMES.includes(username.toLowerCase()); }
+
+    // WICHTIG: jetzt async (vorher synchron) - siehe Zusammenfassung/Risiken.
+    async function isUsernameTaken(username, excludeUsername = null) {
+        if (!username) return false;
+        if (excludeUsername && username.toLowerCase() === excludeUsername.toLowerCase()) return false;
+        const { data, error } = await supabaseClient.rpc('is_username_available', { check_name: username });
+        if (error) {
+            console.warn('[MV] Verfügbarkeitsprüfung fehlgeschlagen:', error.message);
+            return false; // im Zweifel nicht blockieren - harte Prüfung erfolgt ohnehin serverseitig beim Signup
+        }
+        return data === false;
     }
 
     function getPasswordStrength(pw) {
         if (!pw) return 0;
         let score = 0;
-        if (pw.length >= 8)  score++;
+        if (pw.length >= 8) score++;
         if (pw.length >= 12) score++;
         if (pw.length >= 16) score++;
         if (/[a-z]/.test(pw) && /[A-Z]/.test(pw)) score++;
@@ -657,505 +711,50 @@ window.MV_BASE = ((document.currentScript || {}).src || '')
         return Math.min(4, Math.max(1, Math.ceil(score / 1.5)));
     }
 
-
     // ==========================================================================
-    // PASSWORT VERGESSEN – Reset-Token-Verwaltung
-    //
-    // WICHTIG FÜR DIE SPÄTERE BACKEND-ANBINDUNG (Supabase + Resend):
-    // Diese Simulation läuft komplett im Browser (localStorage) und ersetzt
-    // später einen echten Server-Endpunkt. Beim Umstieg:
-    //   1. requestPasswordReset() wird zu einem Aufruf einer Supabase Edge
-    //      Function / API-Route, die serverseitig:
-    //        - den Token generiert und NUR gehasht in der DB speichert,
-    //        - eine E-Mail über Resend mit dem Reset-Link verschickt,
-    //        - IMMER dieselbe Antwort liefert, egal ob die Adresse existiert
-    //          (verhindert User-Enumeration),
-    //        - Rate-Limiting serverseitig durchsetzt (hier nur clientseitig
-    //          und rein kosmetisch).
-    //   2. validatePasswordResetToken() / resetPasswordWithToken() werden zu
-    //      Supabase-Abfragen, die den gehashten Token serverseitig vergleichen.
-    //   3. Der console.info()-Aufruf mit dem Klartext-Link MUSS entfernt
-    //      werden, sobald Resend echte E-Mails verschickt.
-    //   4. Suggested Postgres schema:
-    //
-    //        create table password_resets (
-    //          id          uuid primary key default gen_random_uuid(),
-    //          user_id     uuid not null references auth.users(id) on delete cascade,
-    //          token_hash  text not null,          -- SHA-256, never store the raw token
-    //          expires_at  timestamptz not null,
-    //          used_at     timestamptz,
-    //          created_at  timestamptz not null default now()
-    //        );
-    //        create index on password_resets (token_hash);
-    //        create index on password_resets (user_id) where used_at is null;
-    //
+    // PASSWORT-RESET (nativ, Supabase Auth)
     // ==========================================================================
 
-    const PASSWORD_RESETS_KEY   = 'mv-passwordResets';
-    const RESET_TOKEN_TTL_MS    = 60 * 60 * 1000; // 1 Stunde gültig
-    const RESET_RATE_LIMIT_MS   = 60 * 1000;      // 1 Anfrage pro Minute und E-Mail
-    const RESET_RATE_LIMIT_KEY  = 'mv-resetRateLimit';
-
-    function getPasswordResets() {
-        try {
-            const arr = JSON.parse(localStorage.getItem(PASSWORD_RESETS_KEY));
-            return Array.isArray(arr) ? arr : [];
-        } catch {
-            return [];
-        }
+    async function requestPasswordReset(email) {
+        const { error } = await supabaseClient.auth.resetPasswordForEmail(
+            (email || '').trim(),
+            { redirectTo: `${window.MV_BASE}/html/reset-password.html` }
+        );
+        // Kein unterschiedliches Verhalten bei Fehler zurückgeben (No-Enumeration).
+        if (error) console.warn('[MV] Passwort-Reset-Anfrage:', error.message);
+        return { requested: true };
     }
 
-    function savePasswordResets(arr) {
-        localStorage.setItem(PASSWORD_RESETS_KEY, JSON.stringify(arr));
-    }
-
-    // Entfernt abgelaufene Einträge, damit der Speicher nicht unbegrenzt wächst
-    // (in einer echten DB würde das ein TTL-Index übernehmen).
-    function pruneExpiredResets() {
-        const now = Date.now();
-        const remaining = getPasswordResets().filter(r => !r.used && r.expiresAt > now);
-        savePasswordResets(remaining);
-        return remaining;
-    }
-
-    function generateRawToken() {
-        const bytes = new Uint8Array(32);
-        (window.crypto || window.msCrypto).getRandomValues(bytes);
-        let binary = '';
-        bytes.forEach(b => { binary += String.fromCharCode(b); });
-        // Base64url ohne Padding – URL-sicher als Query-Parameter
-        return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-    }
-
-    async function hashResetToken(token) {
-        if (window.crypto && window.crypto.subtle) {
-            const data = new TextEncoder().encode(token);
-            const digest = await window.crypto.subtle.digest('SHA-256', data);
-            return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, '0')).join('');
-        }
-        // Fallback ohne Web Crypto API (z.B. kein sicherer Kontext) – deutlich
-        // schwächer, nur als Notlösung. Entfällt komplett mit dem Supabase-Umstieg.
-        let hash = 0;
-        for (let i = 0; i < token.length; i++) {
-            hash = (hash * 31 + token.charCodeAt(i)) >>> 0;
-        }
-        return 'fallback-' + hash.toString(16);
-    }
-
-    // Rein clientseitiges Rate-Limiting, KEIN Ersatz für serverseitiges
-    // Rate-Limiting (folgt mit Supabase). Absichtlich lautlos gegenüber dem
-    // Nutzer, damit es nicht zur Unterscheidung "E-Mail existiert" missbraucht
-    // werden kann.
-    function isResetRateLimited(emailLower) {
-        try {
-            const store = JSON.parse(localStorage.getItem(RESET_RATE_LIMIT_KEY)) || {};
-            const last = store[emailLower];
-            return !!last && (Date.now() - last) < RESET_RATE_LIMIT_MS;
-        } catch {
-            return false;
-        }
-    }
-
-    function markResetRateLimit(emailLower) {
-        try {
-            const store = JSON.parse(localStorage.getItem(RESET_RATE_LIMIT_KEY)) || {};
-            store[emailLower] = Date.now();
-            localStorage.setItem(RESET_RATE_LIMIT_KEY, JSON.stringify(store));
-        } catch { /* Speicher voll o.ä. – kein Blocker */ }
-    }
-
-    // Fordert einen Passwort-Reset an. Liefert bewusst keine unterschiedlichen
-    // Signale nach außen, je nachdem ob die E-Mail existiert – siehe
-    // forgot-password.js, das immer dieselbe Meldung anzeigt.
-    async function requestPasswordReset(identifierEmail) {
-        const emailLower = (identifierEmail || '').trim().toLowerCase();
-        if (!emailLower) return { requested: false };
-
-        if (isResetRateLimited(emailLower)) return { requested: false };
-        markResetRateLimit(emailLower);
-
-        const user = findUserByEmail(emailLower);
-        if (!user) return { requested: false }; // bewusst kein Unterschied nach außen
-
-        // Alle noch gültigen Tokens für diesen Account entwerten – es soll
-        // immer nur maximal ein aktiver Reset-Link existieren.
-        const resets = pruneExpiredResets().filter(r => r.usernameLower !== user.username.toLowerCase());
-
-        const rawToken = generateRawToken();
-        const tokenHash = await hashResetToken(rawToken);
-
-        resets.push({
-            usernameLower: user.username.toLowerCase(),
-            tokenHash,
-            expiresAt: Date.now() + RESET_TOKEN_TTL_MS,
-            used: false,
-            createdAt: Date.now()
-        });
-        savePasswordResets(resets);
-
-        const resetLink = `${window.MV_BASE}/html/reset-password.html?token=${encodeURIComponent(rawToken)}`;
-
-        // ── TODO (Resend-Integration) ────────────────────────────────────────
-        // Hier muss später ein Aufruf an eine Supabase Edge Function o.ä. hin,
-        // die den Reset-Link per Resend an user.email verschickt. Bis dahin nur
-        // Konsolen-Ausgabe zum lokalen Testen – NIEMALS so in Produktion lassen!
-        console.info('[DEV ONLY – wird durch Resend ersetzt] Passwort-Reset-Link:', resetLink);
-
-        return { requested: true, devResetLink: resetLink };
-    }
-
-    async function validatePasswordResetToken(token) {
-        if (!token) return { valid: false, reason: 'missing' };
-        const tokenHash = await hashResetToken(token);
-        const resets = pruneExpiredResets();
-        const record = resets.find(r => r.tokenHash === tokenHash && !r.used);
-        if (!record) return { valid: false, reason: 'invalid_or_expired' };
-        return { valid: true, usernameLower: record.usernameLower };
-    }
-
-    async function resetPasswordWithToken(token, newPassword) {
-        if (!newPassword || newPassword.length < 6) {
-            return { success: false, reason: 'weak_password' };
-        }
-
-        const check = await validatePasswordResetToken(token);
-        if (!check.valid) return { success: false, reason: check.reason };
-
-        const users = getAllUsers();
-        const idx = users.findIndex(u => u.username.toLowerCase() === check.usernameLower);
-        if (idx === -1) return { success: false, reason: 'user_not_found' };
-
-        users[idx] = { ...users[idx], password: newPassword };
-        saveAllUsers(users);
-
-        // Falls der Account gerade in diesem Browser eingeloggt ist, auch
-        // currentUser aktualisieren.
-        const current = getCurrentUser();
-        if (current && current.username.toLowerCase() === check.usernameLower) {
-            saveCurrentUser({ ...current, password: newPassword });
-        }
-
-        // Alle Reset-Tokens dieses Accounts entwerten – nach einem erfolgreichen
-        // Reset sind alte Links tot.
-        const remaining = getPasswordResets().filter(r => r.usernameLower !== check.usernameLower);
-        savePasswordResets(remaining);
-
+    async function resetPasswordWithToken(_token, newPassword) {
+        // _token wird nicht mehr manuell geprüft: Supabase erkennt den Recovery-Link
+        // automatisch aus der URL (detectSessionInUrl) und stellt eine befristete
+        // Session her, BEVOR dieser Aufruf passiert.
+        if (!newPassword || newPassword.length < 6) return { success: false, reason: 'weak_password' };
+        const { error } = await supabaseClient.auth.updateUser({ password: newPassword });
+        if (error) return { success: false, reason: error.message };
         return { success: true };
     }
 
-        // ==========================================================================
-    // EMAIL CHANGE – Verification Code Management (mirrors the password reset
-    // flow above in security level: hashed codes, expiry, rate limiting)
-    //
-    // IMPORTANT FOR THE LATER BACKEND MIGRATION (Supabase + Resend):
-    // This simulation runs entirely in the browser (localStorage) and stands
-    // in for a real server endpoint. When migrating:
-    //   1. requestEmailChange() becomes a call to a Supabase Edge Function
-    //      that generates the code server-side, stores it ONLY hashed, and
-    //      sends it to the NEW address via Resend.
-    //   2. verifyEmailChangeCode() becomes a server-side comparison of the
-    //      hashed code.
-    //   3. The console.info() call with the plaintext code MUST be removed
-    //      once Resend sends real emails.
-    //   4. Suggested Postgres schema:
-    //
-    //        create table email_changes (
-    //          id          uuid primary key default gen_random_uuid(),
-    //          user_id     uuid not null references auth.users(id) on delete cascade,
-    //          new_email   text not null,
-    //          code_hash   text not null,          -- SHA-256, never store the raw 6-digit code
-    //          expires_at  timestamptz not null,
-    //          used_at     timestamptz,
-    //          attempts    int not null default 0,  -- guards against brute-forcing the code
-    //          created_at  timestamptz not null default now()
-    //        );
-    //        create index on email_changes (user_id) where used_at is null;
-    //
+    // ==========================================================================
+    // E-MAIL-ÄNDERUNG (nativ, Option A)
     // ==========================================================================
 
-    const EMAIL_CHANGES_KEY = 'mv-emailChanges';
-    const EMAIL_CHANGE_CODE_TTL_MS = 15 * 60 * 1000; // valid for 15 minutes
-    const EMAIL_CHANGE_RATE_LIMIT_MS = 60 * 1000;    // 1 request per minute per account
-    const EMAIL_CHANGE_RATE_LIMIT_KEY = 'mv-emailChangeRateLimit';
-    const EMAIL_CHANGE_MAX_ATTEMPTS = 5; // protects against guessing the 6-digit code
-
-    function getEmailChanges() {
-        try {
-            const arr = JSON.parse(localStorage.getItem(EMAIL_CHANGES_KEY));
-            return Array.isArray(arr) ? arr : [];
-        } catch {
-            return [];
-        }
-    }
-
-    function saveEmailChanges(arr) {
-        localStorage.setItem(EMAIL_CHANGES_KEY, JSON.stringify(arr));
-    }
-
-    function pruneExpiredEmailChanges() {
-        const now = Date.now();
-        const remaining = getEmailChanges().filter(r => !r.used && r.expiresAt > now);
-        saveEmailChanges(remaining);
-        return remaining;
-    }
-
-    function generateEmailCode() {
-        const bytes = new Uint32Array(1);
-        (window.crypto || window.msCrypto).getRandomValues(bytes);
-        return String(bytes[0] % 1000000).padStart(6, '0');
-    }
-
-    function isEmailChangeRateLimited(usernameLower) {
-        try {
-            const store = JSON.parse(localStorage.getItem(EMAIL_CHANGE_RATE_LIMIT_KEY)) || {};
-            const last = store[usernameLower];
-            return !!last && (Date.now() - last) < EMAIL_CHANGE_RATE_LIMIT_MS;
-        } catch {
-            return false;
-        }
-    }
-
-    function markEmailChangeRateLimit(usernameLower) {
-        try {
-            const store = JSON.parse(localStorage.getItem(EMAIL_CHANGE_RATE_LIMIT_KEY)) || {};
-            store[usernameLower] = Date.now();
-            localStorage.setItem(EMAIL_CHANGE_RATE_LIMIT_KEY, JSON.stringify(store));
-        } catch { /* storage full or disabled – not a blocker */ }
-    }
-
-    // Step 1: request a new address -> a code is sent to the NEW address
-    // (confirms the user actually has access to that inbox). The current
-    // password is checked beforehand in userArea.js (proof of account
-    // ownership); isLoggedIn() here is a second, server-side-equivalent check.
     async function requestEmailChange(newEmail) {
         if (!isLoggedIn()) return { success: false, reason: 'not_logged_in' };
-        const user = getCurrentUser();
-        if (!user) return { success: false, reason: 'not_logged_in' };
-
-        const emailLower = (newEmail || '').trim().toLowerCase();
-        if (!emailLower || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailLower)) {
-            return { success: false, reason: 'invalid_email' };
-        }
-        if (emailLower === (user.email || '').toLowerCase()) {
-            return { success: false, reason: 'same_email' };
-        }
-        if (isEmailTaken(emailLower, user.username)) {
-            return { success: false, reason: 'email_taken' };
-        }
-
-        const usernameLower = user.username.toLowerCase();
-        if (isEmailChangeRateLimited(usernameLower)) {
-            return { success: false, reason: 'rate_limited' };
-        }
-        markEmailChangeRateLimit(usernameLower);
-
-        // Invalidate any previous, still-open request for this account –
-        // only one active code should exist at a time.
-        const changes = pruneExpiredEmailChanges().filter(r => r.usernameLower !== usernameLower);
-
-        const rawCode = generateEmailCode();
-        const codeHash = await hashResetToken(rawCode);
-
-        changes.push({
-            usernameLower,
-            newEmail: emailLower,
-            codeHash,
-            expiresAt: Date.now() + EMAIL_CHANGE_CODE_TTL_MS,
-            used: false,
-            attempts: 0,
-            createdAt: Date.now()
-        });
-        saveEmailChanges(changes);
-
-        // ── TODO (Resend integration) ────────────────────────────────────────
-        // This needs to call a Supabase Edge Function or similar later, which
-        // sends the code to the NEW address via Resend. Console output only
-        // for local testing until then – NEVER leave this in production!
-        console.info('[DEV ONLY – will be replaced by Resend] Email change code for', emailLower + ':', rawCode);
-
-        return { success: true, devCode: rawCode, expiresInMs: EMAIL_CHANGE_CODE_TTL_MS };
+        const { error } = await supabaseClient.auth.updateUser({ email: (newEmail || '').trim() });
+        if (error) return { success: false, reason: error.message };
+        return { success: true, confirmationSent: true };
     }
 
-    // Step 2: verify the code and apply the new email address on success
-    async function verifyEmailChangeCode(code) {
-        if (!isLoggedIn()) return { success: false, reason: 'not_logged_in' };
-        const user = getCurrentUser();
-        if (!user) return { success: false, reason: 'not_logged_in' };
-
-        const usernameLower = user.username.toLowerCase();
-        const changes = pruneExpiredEmailChanges();
-        const record = changes.find(r => r.usernameLower === usernameLower && !r.used);
-
-        if (!record) return { success: false, reason: 'no_pending_request' };
-
-        if (record.attempts >= EMAIL_CHANGE_MAX_ATTEMPTS) {
-            saveEmailChanges(changes.filter(r => r !== record));
-            return { success: false, reason: 'too_many_attempts' };
-        }
-
-        const inputHash = await hashResetToken((code || '').trim());
-        if (inputHash !== record.codeHash) {
-            record.attempts += 1;
-            saveEmailChanges(changes);
-            return { success: false, reason: 'invalid_code', attemptsLeft: EMAIL_CHANGE_MAX_ATTEMPTS - record.attempts };
-        }
-
-        // Code correct -> apply the email address and remove the request
-        // (only one active attempt is allowed per account, so a separate
-        // "used" flag would be redundant).
-        const oldEmail = user.email;
-        saveEmailChanges(changes.filter(r => r !== record));
-        updateCurrentUser({ email: record.newEmail });
-
-        // Notify the OLD address so the account owner has a way back in if
-        // this change wasn't actually made by them.
-        const devRevertLink = await issueEmailRevertNotification(usernameLower, oldEmail, record.newEmail);
-
-        return { success: true, newEmail: record.newEmail, devRevertLink };
-    }
-    // Discards a still-open request (e.g. when the user cancels the modal).
     function cancelPendingEmailChange() {
-        const user = getCurrentUser();
-        if (!user) return;
-        const usernameLower = user.username.toLowerCase();
-        saveEmailChanges(getEmailChanges().filter(r => r.usernameLower !== usernameLower));
+        // Kein Äquivalent im nativen Flow (kein Datensatz, der storniert werden
+        // könnte) - No-Op, damit ein Aufruf aus noch nicht angepasstem UI-Code
+        // (Schritt 3) nicht crasht.
     }
 
-        // ==========================================================================
-    // EMAIL CHANGE – SECURITY NOTIFICATION + REVERT TOKEN (sent to the OLD
-    // address once a change is confirmed, not when it's merely requested –
-    // a revert link only makes sense once there's something to revert).
-    //
-    // IMPORTANT FOR THE LATER BACKEND MIGRATION (Supabase + Resend):
-    // This still runs entirely in the browser (localStorage). When migrating:
-    //   1. Generating the revert token and sending the notification move into
-    //      the same Edge Function that applies the email change server-side.
-    //   2. Suggested Postgres schema:
-    //
-    //        create table email_revert_tokens (
-    //          id          uuid primary key default gen_random_uuid(),
-    //          user_id     uuid not null references auth.users(id) on delete cascade,
-    //          old_email   text not null,
-    //          new_email   text not null,
-    //          token_hash  text not null,          -- SHA-256, never store the raw token
-    //          expires_at  timestamptz not null,
-    //          used_at     timestamptz,
-    //          created_at  timestamptz not null default now()
-    //        );
-    //        create index on email_revert_tokens (token_hash);
-    //        create index on email_revert_tokens (user_id) where used_at is null;
-    //
-    //   3. revertEmailChange() becomes a public Edge Function endpoint (no
-    //      login required, exactly like resetPasswordWithToken) that compares
-    //      the hashed token server-side.
-    //   4. The console.info() call with the plaintext link MUST be removed
-    //      once Resend sends real emails. A real notification should also log
-    //      IP/device info for context, which isn't available client-side here.
     // ==========================================================================
-
-    const EMAIL_REVERT_TOKENS_KEY = 'mv-emailRevertTokens';
-    const EMAIL_REVERT_TOKEN_TTL_MS = 48 * 60 * 60 * 1000; // valid for 48 hours
-
-    function getEmailRevertTokens() {
-        try {
-            const arr = JSON.parse(localStorage.getItem(EMAIL_REVERT_TOKENS_KEY));
-            return Array.isArray(arr) ? arr : [];
-        } catch {
-            return [];
-        }
-    }
-
-    function saveEmailRevertTokens(arr) {
-        localStorage.setItem(EMAIL_REVERT_TOKENS_KEY, JSON.stringify(arr));
-    }
-
-    function pruneExpiredEmailRevertTokens() {
-        const now = Date.now();
-        const remaining = getEmailRevertTokens().filter(r => !r.used && r.expiresAt > now);
-        saveEmailRevertTokens(remaining);
-        return remaining;
-    }
-
-    // Called internally right after an email change is confirmed (see
-    // verifyEmailChangeCode). Generates the revert token, stores it hashed,
-    // and simulates sending the security notification to the OLD address –
-    // the one address a hijacker does NOT control.
-    async function issueEmailRevertNotification(usernameLower, oldEmail, newEmail) {
-        // Only one active revert option should exist per account at a time –
-        // an older, still-valid token would point back to a now-outdated address.
-        const tokens = pruneExpiredEmailRevertTokens().filter(r => r.usernameLower !== usernameLower);
-
-        const rawToken = generateRawToken();
-        const tokenHash = await hashResetToken(rawToken);
-
-        tokens.push({
-            usernameLower,
-            oldEmail,
-            newEmail,
-            tokenHash,
-            expiresAt: Date.now() + EMAIL_REVERT_TOKEN_TTL_MS,
-            used: false,
-            createdAt: Date.now()
-        });
-        saveEmailRevertTokens(tokens);
-
-        const revertLink = `${window.MV_BASE}/html/revert-email-change.html?token=${encodeURIComponent(rawToken)}`;
-
-        // ── TODO (Resend integration) ────────────────────────────────────────
-        // Send this to oldEmail via Resend instead of logging it.
-        console.info(
-            '[DEV ONLY – will be replaced by Resend] Security notification to', oldEmail + ':',
-            `Your Globomath email was changed from ${oldEmail} to ${newEmail}. If this wasn't you, revert it here:`,
-            revertLink
-        );
-
-        return revertLink;
-    }
-
-    async function validateEmailRevertToken(token) {
-        if (!token) return { valid: false, reason: 'missing' };
-        const tokenHash = await hashResetToken(token);
-        const tokens = pruneExpiredEmailRevertTokens();
-        const record = tokens.find(r => r.tokenHash === tokenHash && !r.used);
-        if (!record) return { valid: false, reason: 'invalid_or_expired' };
-        return { valid: true, oldEmail: record.oldEmail, newEmail: record.newEmail };
-    }
-
-    // Reverts the email address back to oldEmail. Deliberately does NOT
-    // require the person to be logged in (mirrors resetPasswordWithToken) –
-    // if the account was actually hijacked, an attacker may since have
-    // changed the password too, so the token itself must be sufficient proof.
-    async function revertEmailChange(token) {
-        const check = await validateEmailRevertToken(token);
-        if (!check.valid) return { success: false, reason: check.reason };
-
-        const tokenHash = await hashResetToken(token);
-        const tokens = pruneExpiredEmailRevertTokens();
-        const record = tokens.find(r => r.tokenHash === tokenHash && !r.used);
-        if (!record) return { success: false, reason: 'invalid_or_expired' };
-
-        const users = getAllUsers();
-        const idx = users.findIndex(u => u.username.toLowerCase() === record.usernameLower);
-        if (idx === -1) return { success: false, reason: 'user_not_found' };
-
-        users[idx] = { ...users[idx], email: record.oldEmail };
-        saveAllUsers(users);
-
-        // If this browser happens to be logged in as that account, reflect
-        // the reverted address immediately.
-        const current = getCurrentUser();
-        if (current && current.username.toLowerCase() === record.usernameLower) {
-            saveCurrentUser({ ...current, email: record.oldEmail });
-        }
-
-        // The account state was just forcibly reset – any other in-flight
-        // email change (verification code or revert token) for this account
-        // is now stale and gets discarded.
-        saveEmailRevertTokens(getEmailRevertTokens().filter(r => r.usernameLower !== record.usernameLower));
-        saveEmailChanges(getEmailChanges().filter(r => r.usernameLower !== record.usernameLower));
-
-        return { success: true, revertedToEmail: record.oldEmail };
-    }
+    // LOGIN-PROMPT MODAL (unverändert, keine Supabase-Abhängigkeit)
+    // ==========================================================================
 
     let modalReady = false;
 
@@ -1165,34 +764,21 @@ window.MV_BASE = ((document.currentScript || {}).src || '')
 
         const style = document.createElement('style');
         style.textContent = `
-            .mv-modalOverlay {
-                position: fixed; inset: 0;
-                background: rgba(9, 9, 14, 0.85);
+            .mv-modalOverlay { position: fixed; inset: 0; background: rgba(9, 9, 14, 0.85);
                 backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
                 display: flex; align-items: center; justify-content: center;
-                z-index: 9999; animation: mvFadeIn 0.15s ease;
-            }
-            .mv-modalBox {
-                background: var(--bg-surface);
-                border: 1px solid var(--border-glow);
-                border-radius: var(--radius-md);
-                padding: 2rem; max-width: 380px; width: 90%;
+                z-index: 9999; animation: mvFadeIn 0.15s ease; }
+            .mv-modalBox { background: var(--bg-surface); border: 1px solid var(--border-glow);
+                border-radius: var(--radius-md); padding: 2rem; max-width: 380px; width: 90%;
                 box-shadow: 0 0 40px var(--glow-soft), var(--shadow-main);
-                animation: mvScaleIn 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-                text-align: center;
-            }
+                animation: mvScaleIn 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275); text-align: center; }
             .mv-modalTitle { font-size: 1.1rem; font-weight: 800; color: var(--text-primary); margin-bottom: 0.6rem; }
             .mv-modalText { font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 1.5rem; line-height: 1.5; }
             .mv-modalActions { display: flex; justify-content: center; gap: 0.6rem; flex-wrap: wrap; }
             .mv-modalActions a, .mv-modalActions button {
-                font-family: var(--font-main);
-                border-radius: var(--radius-sm);
-                padding: 0.55rem 1.2rem;
-                font-size: 0.78rem; font-weight: 700;
-                cursor: pointer; text-decoration: none;
-                transition: all var(--transition-fast);
-                border: 1px solid var(--border-color);
-            }
+                font-family: var(--font-main); border-radius: var(--radius-sm); padding: 0.55rem 1.2rem;
+                font-size: 0.78rem; font-weight: 700; cursor: pointer; text-decoration: none;
+                transition: all var(--transition-fast); border: 1px solid var(--border-color); }
             .mv-modalBtnPrimary { background-color: var(--border-glow); color: #fff; border: none; }
             .mv-modalBtnPrimary:hover { background-color: var(--accent-hover); box-shadow: 0 0 20px var(--glow-soft); }
             .mv-modalBtnSecondary { background: transparent; color: var(--text-secondary); }
@@ -1214,22 +800,18 @@ window.MV_BASE = ((document.currentScript || {}).src || '')
                     <button class="mv-modalBtnSecondary" id="mvLoginPromptCancel">Cancel</button>
                     <a class="mv-modalBtnPrimary" href="${window.MV_BASE}/html/login.html">Log in</a>
                 </div>
-            </div>
-        `;
+            </div>`;
         document.body.appendChild(overlay);
 
         overlay.addEventListener('click', e => { if (e.target === overlay) hideLoginPrompt(); });
         overlay.querySelector('#mvLoginPromptCancel').addEventListener('click', hideLoginPrompt);
-        document.addEventListener('keydown', e => {
-            if (e.key === 'Escape') hideLoginPrompt();
-        });
+        document.addEventListener('keydown', e => { if (e.key === 'Escape') hideLoginPrompt(); });
     }
 
     function hideLoginPrompt() {
         const overlay = document.getElementById('mvLoginPromptModal');
         if (overlay) overlay.style.display = 'none';
     }
-
     function showLoginPrompt(message) {
         injectModal();
         const overlay = document.getElementById('mvLoginPromptModal');
@@ -1242,14 +824,8 @@ window.MV_BASE = ((document.currentScript || {}).src || '')
     // PUBLIC API
     // ==========================================================================
     window.MV = {
-        THEMES,
-        CURRENCIES,
-        redirectIfLoggedIn,
-        isLoggedIn,
-        getCurrentUser,
-        saveCurrentUser,
-        updateCurrentUser,
-        logout,
+        THEMES, CURRENCIES,
+        redirectIfLoggedIn, isLoggedIn, getCurrentUser, saveCurrentUser, updateCurrentUser, logout,
         getFavorites, setFavorites, toggleFavorite,
         getPinnedGroups, setPinnedGroups,
         getContainerOrders, setContainerOrders,
@@ -1267,24 +843,17 @@ window.MV_BASE = ((document.currentScript || {}).src || '')
         showLoginPrompt, hideLoginPrompt,
         getUsername: () => (getCurrentUser()?.username) || 'Guest',
         getEmail: () => (getCurrentUser()?.email) || '',
-        getAllUsers, saveAllUsers,
-        findUserByUsername, findUserByEmail, findUserByUsernameOrEmail,
-        isUsernameTaken, isEmailTaken,
-        isUsernameFormatValid, isUsernameReserved,
+        isUsernameTaken, isUsernameFormatValid, isUsernameReserved,
         registerUser, loginUser, deleteCurrentAccount,
         verifyCurrentPassword, updateUsername, updatePassword,
         getAdvancedModes, setAdvancedModes, getAdvancedMode, toggleAdvancedMode,
         bindAdvancedToggle,
-        requestPasswordReset, validatePasswordResetToken, resetPasswordWithToken,
-        requestEmailChange, verifyEmailChangeCode, cancelPendingEmailChange,
-        validateEmailRevertToken, revertEmailChange
+        requestPasswordReset, resetPasswordWithToken,
+        requestEmailChange, cancelPendingEmailChange
     };
 
-    // theme-init.js hat Theme/Design/Fontsize bereits vor dem CSS im <head>
-    // angewendet (inkl. eigenem resize-Listener) – hier nichts mehr nötig.
-
     // ==========================================================================
-    // NAVBAR: Login/Register -> Useraccount-Link, wenn eingeloggt
+    // NAVBAR: Login/Register -> Useraccount-Link, wenn eingeloggt (unverändert)
     // ==========================================================================
     const navUserAreas = document.querySelectorAll('[id^="navUserArea"]');
 
@@ -1298,25 +867,17 @@ window.MV_BASE = ((document.currentScript || {}).src || '')
             userAccount.href = `${window.MV_BASE}/html/userArea.html`;
             userAccount.target = '_self';
             userAccount.classList.add('userAccount');
-            userAccount.innerHTML = `
-                <span class="userName">${displayName}</span>
-                <i class="fa fa-cog settings-icon"></i>
-            `;
-
+            userAccount.innerHTML = `<span class="userName">${displayName}</span><i class="fa fa-cog settings-icon"></i>`;
             area.innerHTML = '';
             area.appendChild(userAccount);
         });
     }
 
-    if (isLoggedIn() && navUserAreas.length) {
-        changeNavUserArea();
-    }
+    if (isLoggedIn() && navUserAreas.length) changeNavUserArea();
 
-    // ══════════════════════════════════════════════════════════════════════
-    // NAVBAR BURGER MENU (beide Versionen: eingeloggt + nicht eingeloggt)
-    // ══════════════════════════════════════════════════════════════════════
-
-    // Auto-fix: searchContainer-Klasse setzen falls nicht vorhanden
+    // ==========================================================================
+    // NAVBAR BURGER MENU (unverändert, keine Supabase-Abhängigkeit)
+    // ==========================================================================
     (function fixSearchContainer() {
         document.querySelectorAll('[id^="searchInput"]').forEach(input => {
             if (!input.parentElement.classList.contains('searchContainer')) {
@@ -1326,27 +887,16 @@ window.MV_BASE = ((document.currentScript || {}).src || '')
     })();
 
     function initNavBurger() {
-        // Nicht auf der UserArea-Seite (hat eigenes Layout)
         if (document.querySelector('.settingsLayout')) return;
-
-        // .secondNavList (Funktionsrechner Fullscreen) hat bereits ihr eigenes
-        // Auf-/Zuklapp-Gate über #buttonForSecondNavList (.is-open) – ein
-        // zusätzlicher Burger würde ein zweites, verschachteltes Ausklappen
-        // erzwingen. Nur die normale .navbar bekommt daher den Burger.
         document.querySelectorAll('.navbar').forEach(setupNavBurgerFor);
     }
 
     function setupNavBurgerFor(navRow) {
-        // Burger-Button erstellen und anhängen
         const burger = document.createElement('button');
         burger.className = 'navBurger';
         burger.setAttribute('aria-label', 'Open menu');
         burger.setAttribute('aria-expanded', 'false');
-        burger.innerHTML = `
-            <span class="burgerLine"></span>
-            <span class="burgerLine"></span>
-            <span class="burgerLine"></span>
-        `;
+        burger.innerHTML = `<span class="burgerLine"></span><span class="burgerLine"></span><span class="burgerLine"></span>`;
         navRow.appendChild(burger);
 
         function openMenu() {
@@ -1355,7 +905,6 @@ window.MV_BASE = ((document.currentScript || {}).src || '')
             burger.setAttribute('aria-expanded', 'true');
             burger.setAttribute('aria-label', 'Close menu');
         }
-
         function closeMenu() {
             navRow.classList.remove('nav-open');
             burger.classList.remove('is-open');
@@ -1367,43 +916,22 @@ window.MV_BASE = ((document.currentScript || {}).src || '')
             e.stopPropagation();
             navRow.classList.contains('nav-open') ? closeMenu() : openMenu();
         });
-
-        // Schließen bei Klick außerhalb
-        document.addEventListener('click', (e) => {
-            if (!navRow.contains(e.target)) closeMenu();
-        });
-
-        // Schließen bei Escape
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape') closeMenu();
-        });
-
-        // Schließen wenn Nav-Link oder Suchergebnis geklickt
-        navRow.querySelector('[id^="navUserArea"]')?.addEventListener('click', (e) => {
-            if (e.target.closest('a')) closeMenu();
-        });
+        document.addEventListener('click', (e) => { if (!navRow.contains(e.target)) closeMenu(); });
+        document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeMenu(); });
+        navRow.querySelector('[id^="navUserArea"]')?.addEventListener('click', (e) => { if (e.target.closest('a')) closeMenu(); });
         navRow.querySelector('[id^="searchResults"]')?.addEventListener('click', closeMenu);
     }
 
     initNavBurger();
 
     const _mvPath = window.location.pathname;
-    if (
-        !_mvPath.includes('login') && 
-        !_mvPath.includes('register') && 
-        !_mvPath.includes('forgot-password') && 
-        !_mvPath.includes('reset-password')
-    ) {
+    if (!_mvPath.includes('login') && !_mvPath.includes('register') &&
+        !_mvPath.includes('forgot-password') && !_mvPath.includes('reset-password')) {
         sessionStorage.setItem('mv-return-url', window.location.href);
     }
 
     // ==========================================================================
     // ZENTRALES STATE-RESTORE-SIGNAL
-    // Feuert bei bfCache-Restore (Zurück/Vor-Navigation) und bei
-    // Storage-Änderungen aus anderen Tabs (Login/Logout, Theme, Währung, ...).
-    // Einzelne Tools/Seiten brauchen dafür KEINE eigenen pageshow/storage-
-    // Listener mehr zu bauen, sondern hören nur noch auf dieses eine Event:
-    //   window.addEventListener('mv:staterestore', meineRefreshFunktion)
     // ==========================================================================
     const RESTORE_STORAGE_KEYS = ['currentUser', 'isLoggedIn', 'mv-currency', 'mv-theme', 'mv-design', 'mv-fontsize', 'mv-decimalPlaces', 'mv-liveResult', 'mv-angleMode', 'mv-toolHistory'];
 
@@ -1413,18 +941,19 @@ window.MV_BASE = ((document.currentScript || {}).src || '')
 
     window.addEventListener('storage', (e) => {
         if (!RESTORE_STORAGE_KEYS.includes(e.key)) return;
-        applyTheme(getTheme());
-        applyFontSize(getFontSize());
-        applyDesign(getDesign());
+        applyTheme(getThemeInit());
+        applyFontSize(getFontSizeInit());
+        applyDesign(getDesignInit());
+        loadMirrorSync();
         dispatchStateRestore();
     });
 
     window.addEventListener('pageshow', function (e) {
         if (!e.persisted) return;
 
-        applyTheme(getTheme());
-        applyFontSize(getFontSize());
-        applyDesign(getDesign());
+        applyTheme(getThemeInit());
+        applyFontSize(getFontSizeInit());
+        applyDesign(getDesignInit());
 
         const path = window.location.pathname;
 
@@ -1433,11 +962,8 @@ window.MV_BASE = ((document.currentScript || {}).src || '')
             return;
         }
 
-        // NEU: Prüft auf alle 4 Gäste-Seiten
-        const isAuthPage = path.includes('login') || 
-                        path.includes('register') || 
-                        path.includes('forgot-password') || 
-                        path.includes('reset-password');
+        const isAuthPage = path.includes('login') || path.includes('register') ||
+            path.includes('forgot-password') || path.includes('reset-password');
 
         if (isAuthPage && isLoggedIn()) {
             const returnUrl = sessionStorage.getItem('mv-return-url') || (window.MV_BASE + '/index.html');
@@ -1450,12 +976,12 @@ window.MV_BASE = ((document.currentScript || {}).src || '')
             navUserAreas.forEach(area => {
                 area.innerHTML = `
                     <a href="${window.MV_BASE}/html/login.html" class="navTextBorder">Login</a>
-                    <a href="${window.MV_BASE}/html/register.html" class="navTextBorder">Register</a>
-                `;
+                    <a href="${window.MV_BASE}/html/register.html" class="navTextBorder">Register</a>`;
             });
             if (isLoggedIn()) changeNavUserArea();
         }
 
+        hydrate();
         dispatchStateRestore();
     });
 
