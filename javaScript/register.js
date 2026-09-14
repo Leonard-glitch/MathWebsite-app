@@ -73,7 +73,7 @@ function showSuccessMsg(el, msg) {
  * @param {boolean} silent – true = set classes only, no error text changes
  * @returns {boolean} – true if valid
  */
-function validateUsername(silent = false) {
+async function validateUsername(silent = false) {
     const val = usernameInput.value.trim();
 
     if (!val) {
@@ -95,7 +95,7 @@ function validateUsername(silent = false) {
     }
 
     setValid(usernameInput);
-    if (!silent) showSuccessMsg(usernameError, `“${val}” is available.`);
+    if (!silent) showSuccessMsg(usernameError, `"${val}" is available.`);
     return true;
 }
 
