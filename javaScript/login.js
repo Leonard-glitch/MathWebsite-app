@@ -1,5 +1,3 @@
-
-
 const form           = document.querySelector('.loginForm');
 const usernameInput  = document.getElementById('username');
 const passwordInput  = document.getElementById('password');
@@ -12,8 +10,6 @@ window.MV.redirectIfLoggedIn("../index.html");
 window.addEventListener('pageshow', (e) => {
     if (e.persisted) window.MV.redirectIfLoggedIn("../index.html");
 });
-
-
 
 function setValid(input, errEl) {
     input.classList.remove('is-error', 'shake');
@@ -43,9 +39,14 @@ function hideMsg(el) {
     if (el) el.style.display = 'none';
 }
 
-// ===========================================================================
-// BLUR VALIDATION (green when valid, neutral when empty)
-// ===========================================================================
+// Login ist seit der Supabase-Migration nur noch per E-Mail möglich
+// (siehe loginUser() in common-login.js - Username-Auflösung würde einen
+// öffentlich aufrufbaren "Username -> E-Mail"-Lookup erfordern, was ein
+// Enumeration-Risiko wäre). Format wird hier clientseitig vorab geprüft,
+// damit der Fehler sofort statt erst nach einem Server-Roundtrip erscheint.
+function isEmailLike(value) {
+    return /\S+@\S+\.\S+/.test(value);
+}
 
 usernameInput.addEventListener('blur', () => {
     if (usernameInput.value.trim()) {
@@ -63,10 +64,6 @@ passwordInput.addEventListener('blur', () => {
     }
 });
 
-// ===========================================================================
-// INPUT EVENTS – clear error markers while typing
-// ===========================================================================
-
 usernameInput.addEventListener('input', () => {
     if (usernameInput.classList.contains('is-error')) {
         usernameInput.classList.remove('is-error', 'shake');
@@ -81,14 +78,6 @@ passwordInput.addEventListener('input', () => {
     }
 });
 
-// ===========================================================================
-// SUBMIT VALIDATION
-// ===========================================================================
-
-// ===========================================================================
-// SUBMIT VALIDATION
-// ===========================================================================
-
 form.addEventListener('submit', async (e) => {
     e.preventDefault();
 
@@ -96,9 +85,13 @@ form.addEventListener('submit', async (e) => {
     hideMsg(formError);
 
     let valid = true;
+    const uname = usernameInput.value.trim();
 
-    if (!usernameInput.value.trim()) {
-        setError(usernameInput, usernameError, 'Please enter your username or email address.');
+    if (!uname) {
+        setError(usernameInput, usernameError, 'Please enter your email address.');
+        valid = false;
+    } else if (!isEmailLike(uname)) {
+        setError(usernameInput, usernameError, 'Please log in with your email address.');
         valid = false;
     } else {
         setValid(usernameInput, usernameError);
@@ -112,22 +105,22 @@ form.addEventListener('submit', async (e) => {
     }
 
     if (valid) {
-        const uname = usernameInput.value.trim();
         const result = await window.MV.loginUser(uname, passwordInput.value);
 
         if (!result.success) {
             setError(usernameInput, null);
-            setError(passwordInput, formError, 'Username/email or password is incorrect.');
+            if (result.reason === 'email_required') {
+                setError(usernameInput, usernameError, 'Please log in with your email address.');
+            } else {
+                setError(passwordInput, formError, 'Email or password is incorrect.');
+            }
             return;
         }
-
-        // ... (dein restlicher Code davor, wo Login/Register gecheckt wird)
 
         let baseUrl = window.MV_BASE || ''; 
         let returnUrl = sessionStorage.getItem('mv-return-url') || (baseUrl + '/index.html');
         sessionStorage.removeItem('mv-return-url');
 
-        // SICHERHEITS-CHECK: Verhindert den Redirect-Loop für ALLE Auth-Seiten
         if (
             returnUrl.includes('login') || 
             returnUrl.includes('register') || 
@@ -140,10 +133,6 @@ form.addEventListener('submit', async (e) => {
         window.location.href = returnUrl;
     }
 });
-
-// ===========================================================================
-// PASSWORD TOGGLE (eye icon)
-// ===========================================================================
 
 if (toggleBtn) {
     toggleBtn.addEventListener('click', () => {
