@@ -246,7 +246,7 @@ function initAccountPanel() {
         }
 
         // FEHLER 3: Username bereits vergeben
-        if (window.MV.isUsernameTaken(newName, user.username)) {
+        if (await window.MV.isUsernameTaken(newName, user.username)) {
             shakeElement(document.getElementById('input-username'));
             displayError(`The username "${newName}" is already taken.`);
             return;

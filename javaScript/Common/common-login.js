@@ -215,11 +215,17 @@ const MV_SUPABASE_ANON_KEY = 'YOUR-ANON-KEY';
         await applyRegistrationPayload(userId, stash.payload);
     }
 
+    // Guards overlapping hydrate() calls finishing out of order — only the
+    // most recently STARTED call may write to cache.
+    let hydrateSeq = 0;
+
     async function hydrate() {
+        const seq = ++hydrateSeq;
         try {
             const { data: { session } } = await supabaseClient.auth.getSession();
 
             if (!session) {
+                if (seq !== hydrateSeq) return;
                 if (cache.id) { clearMirror(); dispatchStateRestore(); }
                 return;
             }
@@ -227,6 +233,7 @@ const MV_SUPABASE_ANON_KEY = 'YOUR-ANON-KEY';
             await applyPendingRegistrationIfMatching(session.user.id, session.user.email);
 
             const fresh = await fetchFreshState(session.user.id, session.user.email);
+            if (seq !== hydrateSeq) return; // newer hydrate() already started — discard stale result
             if (fresh) {
                 cache = fresh;
                 persistMirror();
@@ -270,7 +277,12 @@ const MV_SUPABASE_ANON_KEY = 'YOUR-ANON-KEY';
             if (cache.id) { clearMirror(); dispatchStateRestore(); }
             return;
         }
-        if ((event === 'SIGNED_IN' || event === 'USER_UPDATED') && session && session.user.id !== cache.id) {
+        if (event === 'SIGNED_IN' && session && session.user.id !== cache.id) {
+        hydrate();
+        } else if (event === 'USER_UPDATED' && session) {
+            // Same user, but something changed (e.g. confirmed email change).
+            // The old condition required session.user.id !== cache.id, which is
+            // never true for USER_UPDATED — this branch silently never fired.
             hydrate();
         }
     });
@@ -328,10 +340,16 @@ const MV_SUPABASE_ANON_KEY = 'YOUR-ANON-KEY';
         const { username, email, password, ...rest } = userData;
 
         skipNextAuthEvent = true;
-        const { data, error } = await supabaseClient.auth.signUp({
-            email, password,
-            options: { data: { username } } // <- handle_new_user() liest username von hier
-        });
+        let data, error;
+        try {
+            ({ data, error } = await supabaseClient.auth.signUp({
+                email, password,
+                options: { data: { username } } // <- handle_new_user() liest username von hier
+            }));
+        } catch (err) {
+            skipNextAuthEvent = false;
+            return { success: false, reason: 'network_error' };
+        }
 
         if (error) { skipNextAuthEvent = false; return { success: false, reason: error.message }; }
 
@@ -362,7 +380,13 @@ const MV_SUPABASE_ANON_KEY = 'YOUR-ANON-KEY';
         }
 
         skipNextAuthEvent = true;
-        const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
+        let data, error;
+        try {
+            ({ data, error } = await supabaseClient.auth.signInWithPassword({ email, password }));
+        } catch (err) {
+            skipNextAuthEvent = false;
+            return { success: false, reason: 'network_error' };
+        }
         if (error) { skipNextAuthEvent = false; return { success: false, reason: 'invalid_credentials' }; }
 
         await applyPendingRegistrationIfMatching(data.user.id, data.user.email);
@@ -848,7 +872,7 @@ const MV_SUPABASE_ANON_KEY = 'YOUR-ANON-KEY';
         verifyCurrentPassword, updateUsername, updatePassword,
         getAdvancedModes, setAdvancedModes, getAdvancedMode, toggleAdvancedMode,
         bindAdvancedToggle,
-        requestPasswordReset, resetPasswordWithToken,
+        requestPasswordReset, resetPasswordWithToken, isPasswordRecoverySession,
         requestEmailChange, cancelPendingEmailChange
     };
 

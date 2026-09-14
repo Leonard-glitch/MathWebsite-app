@@ -112,12 +112,9 @@ function validateEmail(silent = false) {
         if (!silent) showMsg(emailError, 'Please enter a valid email address.');
         return false;
     }
-    if (window.MV.isEmailTaken(val)) {
-        setError(emailInput);
-        if (!silent) showMsg(emailError, 'An account already exists for this email address.');
-        return false;
-    }
-
+    // Keine Live-Duplikatsprüfung mehr möglich (window.MV.isEmailTaken existiert
+    // bewusst nicht mehr — Enumeration-Risiko). Ein Duplikat wird jetzt erst
+    // beim Absenden über die Server-Antwort von registerUser() erkannt.
     setValid(emailInput);
     if (!silent) hideMsg(emailError);
     return true;
@@ -292,7 +289,7 @@ form.addEventListener('submit', async (e) => {
         showMsg(usernameError, 'Only letters, numbers, _, - and . are allowed (3–20 characters).');
         valid = false;
         firstErrorInput = firstErrorInput || usernameInput;
-    } else if (window.MV.isUsernameReserved(uname) || window.MV.isUsernameTaken(uname)) {
+    } else if (window.MV.isUsernameReserved(uname) || await window.MV.isUsernameTaken(uname)) {
         setError(usernameInput);
         showMsg(usernameError, `"${uname}" is already taken.`);
         valid = false;
@@ -307,11 +304,7 @@ form.addEventListener('submit', async (e) => {
         showMsg(emailError, 'Please enter a valid email address.');
         valid = false;
         firstErrorInput = firstErrorInput || emailInput;
-    } else if (window.MV.isEmailTaken(emailInput.value.trim())) {
-        setError(emailInput);
-        showMsg(emailError, 'An account already exists for this email address.');
-        valid = false;
-        firstErrorInput = firstErrorInput || emailInput;
+    // Duplikat-E-Mail wird erst nach registerUser() unten erkannt.
     } else {
         setValid(emailInput);
     }
@@ -399,7 +392,15 @@ form.addEventListener('submit', async (e) => {
                 submitBtn.style.cursor = '';
                 submitBtn.style.opacity = '';
             }
-            showMsg(formError, 'Registration failed. Please try again.');
+            const reason = (result.reason || '').toLowerCase();
+            if (reason === 'network_error') {
+                showMsg(formError, 'Could not reach the server. Please check your connection and try again.');
+                } else if (reason.includes('already registered') || reason.includes('already exists')) {
+                    setError(emailInput);
+                    showMsg(emailError, 'An account already exists for this email address.');
+                } else {
+                    showMsg(formError, 'Registration failed. Please try again.');
+                }
             return;
         }
 

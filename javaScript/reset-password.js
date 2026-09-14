@@ -1,6 +1,3 @@
-const params = new URLSearchParams(window.location.search);
-const token  = params.get('token') || '';
-
 const formContainer = document.getElementById('resetFormContainer');
 const invalidBox    = document.getElementById('invalidTokenBox');
 const successBox    = document.getElementById('successBox');
@@ -41,19 +38,23 @@ function updateStrengthBar(pw) {
     strengthLabel.textContent = labels[lvl];
 }
 
-async function init() {
-    if (!token) {
-        formContainer.style.display = 'none';
-        invalidBox.style.display = 'block';
-        return;
-    }
-    const check = await window.MV.validatePasswordResetToken(token);
-    if (!check.valid) {
+// Supabase's detectSessionInUrl parses the recovery link from the URL and
+// establishes a temporary session automatically — there is no token left
+// for us to validate manually. common-login.js tracks whether that happened
+// via the 'PASSWORD_RECOVERY' auth event, exposed here.
+function checkRecoveryAccess() {
+    if (window.MV.isPasswordRecoverySession()) {
+        formContainer.style.display = '';
+        invalidBox.style.display = 'none';
+    } else {
         formContainer.style.display = 'none';
         invalidBox.style.display = 'block';
     }
 }
-init();
+
+// The event may fire before or after this script runs — cover both orders.
+window.addEventListener('mv:passwordrecovery', checkRecoveryAccess);
+checkRecoveryAccess();
 
 newPwInput.addEventListener('input', () => {
     updateStrengthBar(newPwInput.value);
@@ -89,7 +90,8 @@ form.addEventListener('submit', async (e) => {
     const submitBtn = form.querySelector('button[type="submit"]');
     submitBtn.disabled = true;
 
-    const result = await window.MV.resetPasswordWithToken(token, pw);
+    // The recovery session (not a token) authorizes this update.
+    const result = await window.MV.resetPasswordWithToken(null, pw);
 
     if (!result.success) {
         submitBtn.disabled = false;
@@ -102,7 +104,6 @@ form.addEventListener('submit', async (e) => {
     successBox.style.display = 'block';
 });
 
-// Passwort-Sichtbarkeits-Toggles (gleiches Muster wie login.js/register.js)
 function setupPasswordToggle(toggleId, inputEl) {
     const btn = document.getElementById(toggleId);
     if (!btn || !inputEl) return;

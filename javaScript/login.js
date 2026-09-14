@@ -123,14 +123,16 @@ form.addEventListener('submit', async (e) => {
         const result = await window.MV.loginUser(uname, passwordInput.value);
 
         if (!result.success) {
-        if (result.reason === 'email_required') {
-            setError(usernameInput, usernameError, 'Please log in with your email address.');
-        } else {
-            setError(usernameInput, null);
-            setError(passwordInput, formError, 'Email or password is incorrect.');
+            if (result.reason === 'email_required') {
+                setError(usernameInput, usernameError, 'Please log in with your email address.');
+            } else if (result.reason === 'network_error') {
+                showMsg(formError, 'Could not reach the server. Please check your connection and try again.');
+            } else {
+                setError(usernameInput, null);
+                setError(passwordInput, formError, 'Email or password is incorrect.');
+            }
+            return;
         }
-        return;
-    }
 
         // ... (dein restlicher Code davor, wo Login/Register gecheckt wird)
 
