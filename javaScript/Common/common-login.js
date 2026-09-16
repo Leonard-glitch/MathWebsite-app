@@ -893,7 +893,16 @@ const MV_SUPABASE_ANON_KEY = 'YOUR-ANON-KEY';
             userAccount.href = `${window.MV_BASE}/html/userArea.html`;
             userAccount.target = '_self';
             userAccount.classList.add('userAccount');
-            userAccount.innerHTML = `<span class="userName">${displayName}</span><i class="fa fa-cog settings-icon"></i>`;
+
+            const nameSpan = document.createElement('span');
+            nameSpan.className = 'userName';
+            nameSpan.textContent = displayName;
+
+            const icon = document.createElement('i');
+            icon.className = 'fa fa-cog settings-icon';
+
+            userAccount.append(nameSpan, icon);
+
             area.innerHTML = '';
             area.appendChild(userAccount);
         });
