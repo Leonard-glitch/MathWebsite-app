@@ -88,7 +88,7 @@ async function validateUsername(silent = false) {
         return false;
     }
 
-    if (window.MV.isUsernameReserved(val) || window.MV.isUsernameTaken(val)) {
+    if (window.MV.isUsernameReserved(val) || await window.MV.isUsernameTaken(val)) {
         setError(usernameInput);
         if (!silent) showMsg(usernameError, `"${val}" is already taken.`);
         return false;

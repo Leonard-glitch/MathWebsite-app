@@ -765,15 +765,17 @@ const MV_SUPABASE_ANON_KEY = 'YOUR-ANON-KEY';
 
     async function requestEmailChange(newEmail) {
         if (!isLoggedIn()) return { success: false, reason: 'not_logged_in' };
-        const { error } = await supabaseClient.auth.updateUser({ email: (newEmail || '').trim() });
+        // emailRedirectTo zeigt bewusst auf die Startseite statt userArea.html:
+        // userArea.js leitet beim Laden sofort zum Login um, wenn isLoggedIn()
+        // (synchroner Cache-Check) noch false ist - genau das wäre der Fall,
+        // wenn der Bestätigungslink auf einem anderen Gerät/Browser geöffnet
+        // wird, bevor Supabase die Session aus der URL verarbeitet hat.
+        const { error } = await supabaseClient.auth.updateUser(
+            { email: (newEmail || '').trim() },
+            { emailRedirectTo: `${window.MV_BASE}/index.html` }
+        );
         if (error) return { success: false, reason: error.message };
         return { success: true, confirmationSent: true };
-    }
-
-    function cancelPendingEmailChange() {
-        // Kein Äquivalent im nativen Flow (kein Datensatz, der storniert werden
-        // könnte) - No-Op, damit ein Aufruf aus noch nicht angepasstem UI-Code
-        // (Schritt 3) nicht crasht.
     }
 
     // ==========================================================================
@@ -873,7 +875,7 @@ const MV_SUPABASE_ANON_KEY = 'YOUR-ANON-KEY';
         getAdvancedModes, setAdvancedModes, getAdvancedMode, toggleAdvancedMode,
         bindAdvancedToggle,
         requestPasswordReset, resetPasswordWithToken, isPasswordRecoverySession,
-        requestEmailChange, cancelPendingEmailChange
+        requestEmailChange
     };
 
     // ==========================================================================

@@ -458,7 +458,7 @@
 
             <div id="emailStep1">
                 <p class="modalText">
-                    For your security, we'll send a verification code to your new address to confirm you have access to it. Your current email stays active until the change is confirmed.
+                    We'll send a confirmation link to your new address. Since Secure Email Change is enabled, you'll also need to confirm from your current address before the change takes effect. Your current email stays active until both are confirmed.
                 </p>
 
                 <div class="formGroup">
@@ -478,39 +478,20 @@
 
                 <div class="modalActions">
                     <button class="cancelEditBtn" id="emailModalCancelBtn1">Cancel</button>
-                    <button class="saveChangesBtn" id="sendEmailCodeBtn">Send verification code</button>
+                    <button class="saveChangesBtn" id="sendEmailCodeBtn">Send confirmation link</button>
                 </div>
             </div>
 
             <div id="emailStep2" class="hidden">
                 <p class="modalText">
-                    We sent a 6-digit code to <strong id="pendingNewEmailLabel"></strong>. Enter it below to confirm the change. The code is valid for 15 minutes.
+                    We sent confirmation links to your current address and to <strong id="pendingNewEmailLabel"></strong>. Click the link in <strong>both</strong> emails to complete the change.
                 </p>
-
-                <div class="formGroup">
-                    <label class="formLabel">Verification code</label>
-                    <input type="text" id="emailCodeInput" class="settingsInput codeInput" placeholder="000000" inputmode="numeric" maxlength="6" autocomplete="one-time-code">
-                </div>
 
                 <div class="formError hidden" id="emailStep2Error"></div>
 
-                <button type="button" class="resendCodeLink" id="resendEmailCodeBtn">Resend code</button>
+                <button type="button" class="resendCodeLink" id="resendEmailCodeBtn">Resend links</button>
 
                 <div class="modalActions">
-                    <button class="cancelEditBtn" id="emailModalCancelBtn2">Cancel</button>
-                    <button class="saveChangesBtn" id="verifyEmailCodeBtn">Verify &amp; update email</button>
-                </div>
-            </div>
-
-            <div id="emailStepSuccess" class="hidden">
-                <div class="toastMessage" style="margin-top:0;">s
-                    <i class="fa fa-check-circle"></i>
-                    <span>Your email address has been updated!</span>
-                </div>
-                <p class="modalText" style="margin-top:1rem; margin-bottom:0;">
-                    For your security, we also sent a notice with an undo link to your previous email address, in case this wasn't you.
-                </p>
-                <div class="modalActions" style="margin-top:1rem;">
                     <button class="saveChangesBtn" id="emailModalDoneBtn">Done</button>
                 </div>
             </div>
