@@ -15,8 +15,8 @@ window.MV_BASE = ((document.currentScript || {}).src || '')
  *
  * TODO (zwingend vor dem ersten Test auszufüllen):
  * ============================================================================= */
-const MV_SUPABASE_URL = 'https://YOUR-PROJECT-REF.supabase.co';
-const MV_SUPABASE_ANON_KEY = 'YOUR-ANON-KEY';
+const MV_SUPABASE_URL = 'https://kdfulescwtiyjilnmewg.supabase.co';
+const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
 
 (function () {
 
