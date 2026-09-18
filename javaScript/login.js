@@ -120,9 +120,16 @@ form.addEventListener('submit', async (e) => {
 
     if (valid) {
         const uname = usernameInput.value.trim();
+        const submitBtn = form.querySelector('button[type="submit"]');
+        const originalBtnText = submitBtn.textContent;
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Logging in...';
+
         const result = await window.MV.loginUser(uname, passwordInput.value);
 
         if (!result.success) {
+            submitBtn.disabled = false;
+            submitBtn.textContent = originalBtnText;
             if (result.reason === 'email_required') {
                 setError(usernameInput, usernameError, 'Please log in with your email address.');
             } else if (result.reason === 'network_error') {

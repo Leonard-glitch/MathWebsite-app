@@ -300,7 +300,12 @@ function sortGroupsByPins() {
 
 function initSearch() {
     const searchInput = document.getElementById("searchInput");
-    if (!searchInput) return;
+    // Guard: initMathVerse() (und damit initSearch()) läuft jetzt bei jedem
+    // mv:staterestore erneut; #searchInput liegt in der Navbar außerhalb von
+    // groupsContainer und wird dabei nie neu erzeugt – ohne Guard würde sich
+    // pro Aufruf ein weiterer "input"-Listener aufaddieren.
+    if (!searchInput || searchInput.dataset.mvFilterBound) return;
+    searchInput.dataset.mvFilterBound = "true";
 
     searchInput.addEventListener("input", function () {
         const query = this.value.toLowerCase().trim();
@@ -523,18 +528,13 @@ function positionGlobalTooltip(tooltip, infoIcon) {
 // 10. CROSS-TAB SYNC
 // ==========================================================================
 
-window.addEventListener("storage", (e) => {
-    if (e.key !== "currentUser" && e.key !== "isLoggedIn") return;
-
-    const favoriten = window.MV.getFavorites();
-    tools.forEach(tool => {
-        syncHeartIcons(tool.id, favoriten.includes(tool.id));
-    });
-
-    // Bei Logout/Login in einem anderen Tab gleich neu aufbauen,
-    // da Favoriten/Pins komplett anders aussehen können.
-    initMathVerse();
-});
+// nachher
+// Zentrales Signal aus common-login.js: deckt Cross-Tab-Änderungen (vorher
+// über den nativen "storage"-Event abgedeckt), Logout im selben Tab UND
+// bfcache-Restore via Browser Back/Forward in einem Pfad ab. Ersetzt statt
+// ergänzt den alten storage-Listener, da common-login.js für dieselben Keys
+// bereits mv:staterestore feuert – sonst doppeltes Rebuild bei Cross-Tab.
+window.addEventListener("mv:staterestore", initMathVerse);
 
 // Collapsible-Höhen bei Resize neu auswerten (debounced)
 let _lastInnerWidth = window.innerWidth;

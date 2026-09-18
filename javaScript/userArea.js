@@ -745,10 +745,18 @@ function initDeletePanel() {
         btn.disabled = input.value !== 'DELETE';
     });
 
-   btn.addEventListener('click', async () => {
+    btn.addEventListener('click', async () => {
+        const originalText = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Deleting...';
+
         const result = await window.MV.deleteCurrentAccount();
+
         if (!result.success) {
-            alert('Something went wrong. Please try again.');
+            console.error('[MV] Account deletion failed:', result.reason);
+            btn.disabled = false;
+            btn.innerHTML = originalText;
+            alert(`Account deletion failed: ${result.reason || 'Unknown error'}. Please try again or contact support.`);
             return;
         }
         alert('Account deleted. You will be redirected to the homepage.');
@@ -782,8 +790,9 @@ function initLogoutModal() {
         }
     });
 
-    confirmBtn?.addEventListener('click', () => {
-        window.MV.logout();
+    confirmBtn?.addEventListener('click', async () => {
+        confirmBtn.disabled = true;
+        await window.MV.logout(); // Redirect erst nach vollständigem Sign-Out
         window.location.href = '../index.html';
     });
 }

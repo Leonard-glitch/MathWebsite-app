@@ -361,7 +361,7 @@ form.addEventListener('submit', async (e) => {
             submitBtn.disabled = true;
             submitBtn.style.cursor = 'not-allowed';
             submitBtn.style.opacity = '0.7';
-            // Optional: Text anpassen, z.B.: submitBtn.textContent = 'Registering...';
+            submitBtn.textContent = 'Registering...';
         }
 
         // IF EVERYTHING IS VALID: Register and log in user
@@ -391,6 +391,7 @@ form.addEventListener('submit', async (e) => {
                 submitBtn.disabled = false;
                 submitBtn.style.cursor = '';
                 submitBtn.style.opacity = '';
+                submitBtn.textContent = 'Register';
             }
             const reason = (result.reason || '').toLowerCase();
             if (reason === 'network_error') {
@@ -405,6 +406,15 @@ form.addEventListener('submit', async (e) => {
         }
 
         window.MV.clearGuestToolHistoryStore();
+
+        // Email-Bestätigung nötig -> noch keine Session -> NICHT zur Homepage redirecten
+        if (result.needsEmailConfirmation) {
+            try {
+                sessionStorage.setItem('mv-pending-verify-email', emailInput.value.trim());
+            } catch { /* Storage voll o.ä. - verify-email.html fragt notfalls erneut */ }
+            window.location.href = 'verify-email.html';
+            return;
+        }
 
         let baseUrl = window.MV_BASE || ''; 
         let returnUrl = sessionStorage.getItem('mv-return-url') || (baseUrl + '/index.html');

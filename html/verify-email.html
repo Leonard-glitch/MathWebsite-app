@@ -4,7 +4,7 @@
     <script src="../javaScript/Common/theme-init.js"></script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="Log in to your Globomath account to access your saved calculation history, favorite mathematical tools, and customized user settings.">
+    <meta name="description" content="Confirm your Globomath account. We've sent a verification link to your email address.">
     <link rel="stylesheet" href="../css/all.min.css">
     <link rel="stylesheet" href="../css/v4-shims.min.css">
     <meta name="robots" content="noindex, follow">
@@ -17,19 +17,12 @@
     <link rel="stylesheet" href="../css/feedback.css">
     <link rel="stylesheet" href="../css/Common/common.css">
     <link rel="stylesheet" href="../css/login.css">
-
-    <meta property="og:title" content="Login – Globomath">
-    <meta property="og:description" content="Log in to your Globomath account.">
-    <meta property="og:image" content="https://www.globomath.com/pictures/og-image.jpg">
-    <meta property="og:url" content="https://www.globomath.com/html/login.html">    
-    <title>Login – Globomath</title>
+    <title>Verify your email – Globomath</title>
 </head>
 <body>
     <header>
         <nav class="navbar">
-            <a href="../index.html">
-                <img src="../pictures/WebsiteLogoImageLongImageV2.png" alt="Globomath" class="navImage">
-            </a>
+            <a href="../index.html"><img src="../pictures/WebsiteLogoImageLongImageV2.png" alt="Globomath" class="navImage"></a>
             <div class="searchContainer">
                 <input type="text" name="search" id="searchInput" placeholder="Search..." autocomplete="off">
                 <div id="searchResults"></div>
@@ -44,41 +37,20 @@
     <main>
         <section>
             <div class="loginContainer">
-                <h1 class="loginTitle">Login</h1>
+                <h1 class="loginTitle">Verification email sent</h1>
 
-                <form action="/login" method="POST" class="loginForm" novalidate>
+                <p class="successMessagestyle">
+                    <i class="fa fa-check-circle"></i>
+                    <span>We've sent a confirmation link to <strong id="pendingEmailLabel">your email address</strong>. Please check your inbox (and spam folder) and click the link to activate your account.</span>
+                </p>
 
-                    <div class="inputGroup">
-                        <input type="email" id="username" name="email"
-                            class="xInput" placeholder=" "
-                            required autocomplete="email"
-                            autocapitalize="none" 
-                            autocorrect="off" 
-                            spellcheck="false">
-                        <label for="username" class="floatingLabel">Email address</label>
-                    </div>
-                    <div id="usernameError" class="errorMessagestyle field-error" style="display:none;"></div>
+                <div id="verifyFormError" class="errorMessagestyle field-error" style="display:none;"></div>
 
-                    <div class="inputGroup">
-                        <input type="password" id="password" name="password"
-                               class="xInput" placeholder=" "
-                               required autocomplete="current-password">
-                        <label for="password" class="floatingLabel">Password</label>
-                        <button type="button" class="passwordToggle" id="togglePassword"
-                                tabindex="-1" aria-label="Show password">
-                            <i class="fa fa-eye"></i>
-                        </button>
-                        <div class="forgotPasswordWrapper">
-                            <a href="./forgot-password.html" class="forgotPasswordLink">Forgot password?</a>
-                        </div>
-                    </div>
-                    <div id="formError" class="errorMessagestyle field-error" style="display:none;"></div>
-
-                    <button type="submit" class="xLoginBtn">Log in</button>
-                </form>
+                <button type="button" class="xLoginBtn" id="resendBtn">Resend email</button>
+                <button type="button" class="xLoginBtn xLoginBtn--secondary" id="changeEmailBtn">Change email address</button>
 
                 <div class="signupPrompt">
-                    Don't have an account yet? <a href="./register.html" class="signupLink">Register</a>
+                    <a href="./login.html" class="signupLink">Back to login</a>
                 </div>
             </div>
         </section>
@@ -91,19 +63,17 @@
                 <a href="https://www.instagram.com/globomath?igsh=NmZzNW5mcjE3bWs5" target="_blank" rel="noopener noreferrer"><i class="fa fa-instagram"></i></a>
                 <a href="https://www.youtube.com/@Globomath" target="_blank" rel="noopener noreferrer"><i class="fa fa-youtube-play"></i></a>
             </div>
-
             <div class="leftFootersect">
                 <a href="../html/Privacypolicy.html">Privacy policy</a>
                 <button id="openFeedbackBtn">Feedback</button>
                 <a href="../html/Imprint.html">Imprint</a>
             </div>
-            
             <div class="placeholderFooter">&copy;2026 Globomath</div>
         </div>
     </footer>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
     <script src="../javaScript/Common/common-login.js"></script>
-    <script src="../javaScript/login.js"></script>
+    <script src="../javaScript/verify-email.js"></script>
     <script src="../javaScript/feedback.js"></script>
     <script type="module" src="../javaScript/search.js"></script>
 </body>

@@ -344,7 +344,10 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
         try {
             ({ data, error } = await supabaseClient.auth.signUp({
                 email, password,
-                options: { data: { username } } // <- handle_new_user() liest username von hier
+                options: {
+                    data: { username }, // <- handle_new_user() liest username von hier
+                    emailRedirectTo: `${window.MV_BASE}/index.html`
+                }
             }));
         } catch (err) {
             skipNextAuthEvent = false;
@@ -372,6 +375,16 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
         return { success: true, needsEmailConfirmation: true };
     }
 
+    async function resendConfirmationEmail(email) {
+        const { error } = await supabaseClient.auth.resend({
+            type: 'signup',
+            email: (email || '').trim(),
+            options: { emailRedirectTo: `${window.MV_BASE}/index.html` }
+        });
+        if (error) return { success: false, reason: error.message };
+        return { success: true };
+    }
+
     async function loginUser(identifier, password) {
         const email = (identifier || '').trim();
         if (!email.includes('@')) {
@@ -396,19 +409,27 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
         return { success: true, user: getCurrentUser() };
     }
 
-    // Bewusst SYNCHRON gehalten (wie zuvor) - Aufrufer navigieren direkt nach
-    // dem Aufruf weg, ohne zu awaiten. Cache wird sofort geleert (optimistisch),
-    // der eigentliche Supabase-Sign-out läuft im Hintergrund weiter.
-    function logout() {
+    // Async: Aufrufer MÜSSEN awaiten, bevor sie wegnavigieren – sonst kann die
+    // von supabase-js selbst verwaltete Session (localStorage-Key
+    // sb-<ref>-auth-token) beim Redirect noch bestehen und auf der Zielseite
+    // fälschlich als gültig re-hydriert werden. App-eigener Mirror/State wird
+    // weiterhin sofort (optimistisch) geleert, UI reagiert ohne Wartezeit.
+    async function logout() {
         clearMirror();
         dispatchStateRestore();
-        supabaseClient.auth.signOut().catch(err => console.warn('[MV] Server-Logout fehlgeschlagen:', err.message));
+        const { error } = await supabaseClient.auth.signOut();
+        if (error) {
+            console.warn('[MV] Server-Logout fehlgeschlagen (lokale Supabase-Session ggf. nicht vollständig entfernt):', error.message);
+        }
     }
 
     async function deleteCurrentAccount() {
         if (!isLoggedIn()) return { success: false, reason: 'not_logged_in' };
         const { error } = await supabaseClient.functions.invoke('delete-account');
-        if (error) return { success: false, reason: error.message };
+        if (error) {
+            console.error('[MV] Account deletion failed:', error.message, error);
+            return { success: false, reason: error.message || 'unknown_error' };
+        }
         clearMirror();
         dispatchStateRestore();
         return { success: true };
@@ -597,9 +618,9 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
         });
 
         applyState();
-        window.addEventListener('storage', (e) => {
-            if (e.key === 'currentUser' || e.key === 'isLoggedIn') applyState();
-        });
+        // Deckt jetzt auch Logout im selben Tab und bfcache-Restore ab,
+        // nicht nur Cross-Tab-Änderungen.
+        window.addEventListener('mv:staterestore', applyState);
     }
 
     // ==========================================================================
@@ -870,7 +891,7 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
         getUsername: () => (getCurrentUser()?.username) || 'Guest',
         getEmail: () => (getCurrentUser()?.email) || '',
         isUsernameTaken, isUsernameFormatValid, isUsernameReserved,
-        registerUser, loginUser, deleteCurrentAccount,
+        registerUser, loginUser, deleteCurrentAccount, resendConfirmationEmail,
         verifyCurrentPassword, updateUsername, updatePassword,
         getAdvancedModes, setAdvancedModes, getAdvancedMode, toggleAdvancedMode,
         bindAdvancedToggle,
@@ -909,6 +930,18 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
     }
 
     if (isLoggedIn() && navUserAreas.length) changeNavUserArea();
+
+    // Zentrale Navbar-Synchronisierung – ausgelöst über mv:staterestore
+    // (Logout im selben Tab, Cross-Tab-Änderungen, bfcache-Restore).
+    function syncNavUserArea() {
+        if (!navUserAreas.length) return;
+        navUserAreas.forEach(area => {
+            area.innerHTML = `
+                <a href="${window.MV_BASE}/html/login.html" class="navTextBorder">Login</a>
+                <a href="${window.MV_BASE}/html/register.html" class="navTextBorder">Register</a>`;
+        });
+        if (isLoggedIn()) changeNavUserArea();
+    }
 
     // ==========================================================================
     // NAVBAR BURGER MENU (unverändert, keine Supabase-Abhängigkeit)
@@ -983,6 +1016,10 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
         dispatchStateRestore();
     });
 
+    // Zentrale Reaktion auf JEDES State-Restore-Signal (Logout, Cross-Tab-
+    // Änderungen, bfcache-Restore) – hält die Navbar in jedem Fall konsistent.
+    window.addEventListener('mv:staterestore', syncNavUserArea);
+
     window.addEventListener('pageshow', function (e) {
         if (!e.persisted) return;
 
@@ -1007,15 +1044,8 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
             return;
         }
 
-        if (navUserAreas.length) {
-            navUserAreas.forEach(area => {
-                area.innerHTML = `
-                    <a href="${window.MV_BASE}/html/login.html" class="navTextBorder">Login</a>
-                    <a href="${window.MV_BASE}/html/register.html" class="navTextBorder">Register</a>`;
-            });
-            if (isLoggedIn()) changeNavUserArea();
-        }
-
+        // Navbar-Reset entfernt – läuft jetzt zentral über syncNavUserArea()
+        // via mv:staterestore (siehe unten), ausgelöst durch dispatchStateRestore().
         hydrate();
         dispatchStateRestore();
     });

@@ -323,3 +323,14 @@ section {
     margin-top: 0.15rem;
     flex-shrink: 0;
 }
+
+.xLoginBtn--secondary {
+    background-color: transparent;
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    margin-top: 0.75rem;
+}
+
+.xLoginBtn--secondary:hover {
+    border-color: var(--border-glow);
+}

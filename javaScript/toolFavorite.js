@@ -58,10 +58,8 @@ function init(toolId) {
         render();
     });
 
-    // ── Cross-tab sync ───────────────────────────────────────────────────
-    window.addEventListener('storage', (e) => {
-        if (e.key === 'currentUser' || e.key === 'isLoggedIn') render();
-    });
+    // ── Zustands-Sync (Cross-Tab, Logout im selben Tab, bfcache-Restore) ──
+    window.addEventListener('mv:staterestore', render);
 
     render();
 }

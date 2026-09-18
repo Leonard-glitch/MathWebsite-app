@@ -88,13 +88,15 @@ form.addEventListener('submit', async (e) => {
     setValid(confirmPwInput);
 
     const submitBtn = form.querySelector('button[type="submit"]');
+    const originalBtnText = submitBtn.textContent;
     submitBtn.disabled = true;
+    submitBtn.textContent = 'Resetting...';
 
-    // The recovery session (not a token) authorizes this update.
     const result = await window.MV.resetPasswordWithToken(null, pw);
 
     if (!result.success) {
         submitBtn.disabled = false;
+        submitBtn.textContent = originalBtnText;
         formContainer.style.display = 'none';
         invalidBox.style.display = 'block';
         return;
