@@ -43,6 +43,8 @@ function formatMemberSince(timestamp) {
     });
 }
 
+const MIN_PW_LENGTH = 8;
+
 // ── Shake-Keyframe (einmalig injiziert) ───────────────────────────────────────
 const shakeStyle = document.createElement('style');
 shakeStyle.textContent = `
@@ -79,6 +81,7 @@ document.addEventListener('DOMContentLoaded', () => {
     window.MV.applyFontSize(pendingFontSize);
 
     populateUserInfo();
+    refreshPendingEmailNotice();
     initPanelNav();
     initAccountPanel();
     initChangeEmailModal();
@@ -97,6 +100,7 @@ document.addEventListener('DOMContentLoaded', () => {
 window.addEventListener('mv:staterestore', () => {
     populateUserInfo();
     refreshExtrasPanelValues();
+    refreshPendingEmailNotice();
 });
 
 // =============================================================================
@@ -342,10 +346,17 @@ function initChangeEmailModal() {
         showStep(step1);
     }
 
-    function openModal() {
+    async function openModal() {
         resetModal();
         modal.classList.remove('hidden');
-        newEmailInput.focus();
+        const pending = await window.MV.getPendingEmailChange();
+        if (pending) {
+            pendingEmail = pending;
+            pendingLabel.textContent = pending;
+            showStep(step2);
+        } else {
+            newEmailInput.focus();
+        }
     }
 
     function closeModal() {
@@ -368,12 +379,9 @@ function initChangeEmailModal() {
             showStepError(step1Error, 'Your session has expired. Please log in again.');
             return;
         }
-        const pwCheck = await window.MV.verifyCurrentPassword(pw);
-        if (!pwCheck.success) {
-            showStepError(step1Error, 'The current password is incorrect.');
-            shakeElement(currentPwInput);
-            return;
-        }
+
+        // Reihenfolge gedreht: billige Checks zuerst. Vorher kostete jeder
+        // Tippfehler in der Adresse einen Auth-Request inkl. Rate-Limit-Zähler.
         if (!newEmail || !newEmailInput.checkValidity()) {
             showStepError(step1Error, 'Please enter a valid email address.');
             shakeElement(newEmailInput);
@@ -383,29 +391,55 @@ function initChangeEmailModal() {
             showStepError(step1Error, 'This is already your current email address.');
             return;
         }
+        if (!pw) {
+            showStepError(step1Error, 'Please enter your current password.');
+            shakeElement(currentPwInput);
+            return;
+        }
 
         sendCodeBtn.disabled = true;
         const originalText = sendCodeBtn.textContent;
         sendCodeBtn.textContent = 'Sending...';
 
-        const result = await window.MV.requestEmailChange(newEmail);
+        try {
+            const pwCheck = await window.MV.verifyCurrentPassword(pw);
+            if (!pwCheck.success) {
+                showStepError(step1Error, pwCheck.reason === 'network_error'
+                    ? 'Could not reach the server. Please try again.'
+                    : 'The current password is incorrect.');
+                shakeElement(currentPwInput);
+                return;
+            }
 
-        sendCodeBtn.disabled = false;
-        sendCodeBtn.textContent = originalText;
+            const result = await window.MV.requestEmailChange(newEmail);
+            if (!result.success) {
+                if (result.code === 'rate_limited') {
+                    showStepError(step1Error, 'Too many requests. Please wait a minute and try again.');
+                } else if (result.code === 'network_error') {
+                    showStepError(step1Error, 'Could not reach the server. Please check your connection.');
+                } else {
+                    // No-Enumeration: keine Aussage darüber, ob die Adresse existiert.
+                    showStepError(step1Error, 'This email address could not be used. Please check it and try again.');
+                }
+                return;
+            }
 
-        if (!result.success) {
-            // No-Enumeration, analog zur Registrierung: keine spezifische
-            // "E-Mail existiert bereits"-Meldung, sondern ein generischer Text -
-            // Supabase liefert den echten Fehler nur serverseitig/im Log.
-            showStepError(step1Error, 'This email address could not be used. Please check it and try again.');
-            return;
+            currentPwInput.value = '';          // Passwortmanager-Trigger vermeiden
+            pendingEmail = newEmail;
+            pendingLabel.textContent = newEmail;
+            hideStepError(step2Error);
+            showStep(step2);
+            startResendCooldown();
+            showPendingEmailNotice(newEmail);
+        } catch (err) {
+            // Ohne try/catch blieb der Button bei einem geworfenen Fehler
+            // dauerhaft auf "Sending..." und disabled – Modal faktisch tot.
+            console.error('[MV] Email change failed:', err);
+            showStepError(step1Error, 'Something went wrong. Please try again.');
+        } finally {
+            sendCodeBtn.disabled = false;
+            sendCodeBtn.textContent = originalText;
         }
-
-        pendingEmail = newEmail;
-        pendingLabel.textContent = newEmail;
-        hideStepError(step2Error);
-        showStep(step2);
-        startResendCooldown();
     }
 
     sendCodeBtn.addEventListener('click', sendLink);
@@ -413,15 +447,44 @@ function initChangeEmailModal() {
     currentPwInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') sendLink(); });
 
     resendBtn.addEventListener('click', async () => {
-        if (resendBtn.disabled) return;
+        if (resendBtn.disabled || !pendingEmail) return;
         hideStepError(step2Error);
-        const result = await window.MV.requestEmailChange(pendingEmail);
-        if (!result.success) {
-            showStepError(step2Error, 'Could not resend the links right now. Please wait a moment and try again.');
-            return;
+        try {
+            const result = await window.MV.requestEmailChange(pendingEmail);
+            if (!result.success) {
+                showStepError(step2Error, result.code === 'rate_limited'
+                    ? 'Please wait a moment before requesting the links again.'
+                    : 'Could not resend the links right now. Please try again.');
+                return;
+            }
+            startResendCooldown();
+        } catch (err) {
+            showStepError(step2Error, 'Could not resend the links right now. Please try again.');
         }
-        startResendCooldown();
     });
+}
+
+// Zeigt eine noch nicht abgeschlossene E-Mail-Änderung an. Ohne das war der
+// Zustand nach einem Reload unsichtbar und "Resend links" unerreichbar.
+function showPendingEmailNotice(email) {
+    const row = document.getElementById('view-email')?.closest('.infoRow');
+    if (!row) return;
+    let notice = document.getElementById('pendingEmailNotice');
+    if (!email) { notice?.remove(); return; }
+    if (!notice) {
+        notice = document.createElement('p');
+        notice.id = 'pendingEmailNotice';
+        notice.className = 'editModeHint';
+        notice.style.marginTop = '0.5rem';
+        row.appendChild(notice);
+    }
+    notice.textContent =
+        `Change to ${email} is pending – please confirm the links in both mailboxes.`;
+}
+
+async function refreshPendingEmailNotice() {
+    const pending = await window.MV.getPendingEmailChange();
+    showPendingEmailNotice(pending);
 }
 
 // =============================================================================
@@ -465,8 +528,8 @@ function initSecurityPanel() {
             shakeElement(document.getElementById('sec-current-pw'));
             return;
         }
-        if (nw.length < 6) {
-            showFormError(errorEl, 'The new password must be at least 6 characters long.');
+        if (nw.length < MIN_PW_LENGTH) {
+            showFormError(errorEl, `The new password must be at least ${MIN_PW_LENGTH} characters long.`);
             shakeElement(newPwInput);
             return;
         }
@@ -795,7 +858,10 @@ function initLogoutModal() {
 
     confirmBtn?.addEventListener('click', async () => {
         confirmBtn.disabled = true;
-        await window.MV.logout(); // Redirect erst nach vollständigem Sign-Out
+        const original = confirmBtn.textContent;
+        confirmBtn.textContent = 'Signing out...';
+        await window.MV.logout();
+        confirmBtn.textContent = original;
         window.location.href = '../index.html';
     });
 }

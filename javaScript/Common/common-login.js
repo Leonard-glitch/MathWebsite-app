@@ -132,6 +132,41 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
         } catch { /* Storage voll o.ä. - Mirror bleibt ggf. veraltet, kein harter Fehler */ }
     }
 
+    // Entfernt die von supabase-js selbst verwaltete Session hart aus dem
+    // Storage. Nötig als Fallback: schlug signOut() fehl (offline), hätte
+    // hydrate() den User beim nächsten Laden wieder eingeloggt – obwohl die
+    // UI "ausgeloggt" gezeigt und weg navigiert hat.
+    function purgeSupabaseAuthKeys() {
+        try {
+            const keys = [];
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                if (key && /^sb-.*-auth-token/.test(key)) keys.push(key);
+            }
+            keys.forEach(k => localStorage.removeItem(k));
+        } catch { /* Storage nicht verfügbar */ }
+    }
+
+    // Personenbezogene Reste, die clearMirror() bisher stehen ließ.
+    // Theme/Design/Fontsize bleiben bewusst erhalten (reine Darstellung,
+    // sonst springt die Optik beim Logout).
+    function clearLocalPersonalData() {
+        try {
+            localStorage.removeItem(PENDING_REGISTRATION_KEY);
+            localStorage.removeItem(GUEST_HISTORY_KEY);
+            const toolStateKeys = [];
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                if (key && key.startsWith('mv-toolstate-')) toolStateKeys.push(key);
+            }
+            toolStateKeys.forEach(k => localStorage.removeItem(k));
+            sessionStorage.removeItem('mv-return-url');
+            sessionStorage.removeItem('mv-pending-verify-email');
+            sessionStorage.removeItem('mv-login-fails');
+            sessionStorage.removeItem('mv-login-lock-until');
+        } catch { /* Storage nicht verfügbar */ }
+    }
+
     function clearMirror() {
         cache = { id: null, email: null, profile: null, toolHistory: {} };
         localStorage.removeItem(CACHE_KEY);
@@ -284,12 +319,13 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
             if (cache.id) { clearMirror(); dispatchStateRestore(); }
             return;
         }
-        if (event === 'SIGNED_IN' && session && session.user.id !== cache.id) {
-        hydrate();
+        if (event === 'SIGNED_IN' && session) {
+            // Bedingung "session.user.id !== cache.id" entfernt: nach dem Klick
+            // auf den zweiten Bestätigungslink feuert SIGNED_IN für DENSELBEN
+            // User (detectSessionInUrl) – die geänderte E-Mail wurde dadurch
+            // nie nachgeladen. Dieselbe Falle wie zuvor bei USER_UPDATED.
+            hydrate();
         } else if (event === 'USER_UPDATED' && session) {
-            // Same user, but something changed (e.g. confirmed email change).
-            // The old condition required session.user.id !== cache.id, which is
-            // never true for USER_UPDATED — this branch silently never fired.
             hydrate();
         }
     });
@@ -383,13 +419,17 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
     }
 
     async function resendConfirmationEmail(email) {
-        const { error } = await supabaseClient.auth.resend({
-            type: 'signup',
-            email: (email || '').trim(),
-            options: { emailRedirectTo: window.MV_URL('index.html') }
-        });
-        if (error) return { success: false, reason: error.message };
-        return { success: true };
+        try {
+            const { error } = await supabaseClient.auth.resend({
+                type: 'signup',
+                email: (email || '').trim(),
+                options: { emailRedirectTo: window.MV_URL('index.html') }
+            });
+            if (error) return { success: false, reason: error.message };
+            return { success: true };
+        } catch (err) {
+            return { success: false, reason: 'network_error' };
+        }
     }
 
     async function loginUser(identifier, password) {
@@ -421,13 +461,28 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
     // sb-<ref>-auth-token) beim Redirect noch bestehen und auf der Zielseite
     // fälschlich als gültig re-hydriert werden. App-eigener Mirror/State wird
     // weiterhin sofort (optimistisch) geleert, UI reagiert ohne Wartezeit.
+    // Reihenfolge umgedreht: erst serverseitig widerrufen, dann lokal löschen.
+    // Vorher war es optimistisch – bei fehlgeschlagenem signOut() blieb eine
+    // gültige Session zurück, während die UI bereits "ausgeloggt" zeigte.
     async function logout() {
-        clearMirror();
-        dispatchStateRestore();
-        const { error } = await supabaseClient.auth.signOut();
-        if (error) {
-            console.warn('[MV] Server-Logout fehlgeschlagen (lokale Supabase-Session ggf. nicht vollständig entfernt):', error.message);
+        let signedOut = false;
+        try {
+            const { error } = await supabaseClient.auth.signOut();   // scope: 'global'
+            signedOut = !error;
+            if (error) console.warn('[MV] Server-Logout fehlgeschlagen:', error.message);
+        } catch (err) {
+            console.warn('[MV] Server-Logout nicht erreichbar:', err && err.message);
         }
+
+        if (!signedOut) {
+            try { await supabaseClient.auth.signOut({ scope: 'local' }); } catch { /* s.u. */ }
+            purgeSupabaseAuthKeys();   // harte Notbremse
+        }
+
+        clearMirror();
+        clearLocalPersonalData();
+        dispatchStateRestore();
+        return { success: signedOut };
     }
 
     async function deleteCurrentAccount() {
@@ -467,11 +522,34 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
         return { success: true };
     }
 
+    // Prüft das Passwort OHNE signInWithPassword(). Der bisherige Weg war ein
+    // echter Login: er rotierte Tokens mitten im Flow, zählte auf denselben
+    // Rate-Limit-Zähler wie der Login (Nutzer konnten sich selbst aussperren)
+    // und war das stärkste Signal für den Browser-Passwortmanager.
+    // Fallback auf den alten Weg, falls die RPC (noch) nicht existiert.
     async function verifyCurrentPassword(pw) {
-        if (!cache.email) return { success: false, reason: 'not_logged_in' };
-        const { error } = await supabaseClient.auth.signInWithPassword({ email: cache.email, password: pw });
-        if (error) return { success: false, reason: 'wrong_password' };
-        return { success: true };
+        if (!isLoggedIn() || !cache.email) return { success: false, reason: 'not_logged_in' };
+        if (!pw) return { success: false, reason: 'wrong_password' };
+
+        try {
+            const { data, error } = await supabaseClient.rpc('verify_user_password', { password: pw });
+            if (!error) {
+                return data === true ? { success: true } : { success: false, reason: 'wrong_password' };
+            }
+            console.warn('[MV] verify_user_password RPC nicht verfügbar, nutze Fallback:', error.message);
+        } catch (err) {
+            console.warn('[MV] verify_user_password RPC fehlgeschlagen:', err && err.message);
+        }
+
+        try {
+            skipNextAuthEvent = true;   // kein zusätzliches hydrate() auslösen
+            const { error } = await supabaseClient.auth.signInWithPassword({ email: cache.email, password: pw });
+            if (error) { skipNextAuthEvent = false; return { success: false, reason: 'wrong_password' }; }
+            return { success: true };
+        } catch {
+            skipNextAuthEvent = false;
+            return { success: false, reason: 'network_error' };
+        }
     }
 
     async function updateUsername(name) {
@@ -793,20 +871,23 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
     // ==========================================================================
 
     async function requestPasswordReset(email) {
-        const { error } = await supabaseClient.auth.resetPasswordForEmail(
-            (email || '').trim(),
-            { redirectTo: window.MV_URL('html/reset-password.html') }
-        );
-        // Kein unterschiedliches Verhalten bei Fehler zurückgeben (No-Enumeration).
-        if (error) console.warn('[MV] Passwort-Reset-Anfrage:', error.message);
-        return { requested: true };
+        try {
+            const { error } = await supabaseClient.auth.resetPasswordForEmail(
+                (email || '').trim(),
+                { redirectTo: window.MV_URL('html/reset-password.html') }
+            );
+            if (error) console.warn('[MV] Passwort-Reset-Anfrage:', error.message);
+        } catch (err) {
+            console.warn('[MV] Passwort-Reset-Anfrage fehlgeschlagen:', err && err.message);
+        }
+        return { requested: true };   // No-Enumeration: immer identische Antwort
     }
 
     async function resetPasswordWithToken(_token, newPassword) {
         // _token wird nicht mehr manuell geprüft: Supabase erkennt den Recovery-Link
         // automatisch aus der URL (detectSessionInUrl) und stellt eine befristete
         // Session her, BEVOR dieser Aufruf passiert.
-        if (!newPassword || newPassword.length < 6) return { success: false, reason: 'weak_password' };
+        if (!newPassword || newPassword.length < 8) return { success: false, reason: 'weak_password' };
         const { error } = await supabaseClient.auth.updateUser({ password: newPassword });
         if (error) return { success: false, reason: error.message };
         return { success: true };
@@ -816,19 +897,40 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
     // E-MAIL-ÄNDERUNG (nativ, Option A)
     // ==========================================================================
 
-    async function requestEmailChange(newEmail) {
-        if (!isLoggedIn()) return { success: false, reason: 'not_logged_in' };
-        // emailRedirectTo zeigt bewusst auf die Startseite statt userArea.html:
-        // userArea.js leitet beim Laden sofort zum Login um, wenn isLoggedIn()
-        // (synchroner Cache-Check) noch false ist - genau das wäre der Fall,
-        // wenn der Bestätigungslink auf einem anderen Gerät/Browser geöffnet
-        // wird, bevor Supabase die Session aus der URL verarbeitet hat.
-        const { error } = await supabaseClient.auth.updateUser(
-            { email: (newEmail || '').trim() },
-            { emailRedirectTo: window.MV_URL('index.html') }
-        );
-        if (error) return { success: false, reason: error.message };
-        return { success: true, confirmationSent: true };
+        async function requestEmailChange(newEmail) {
+        if (!isLoggedIn()) return { success: false, code: 'not_logged_in' };
+        try {
+            const { error } = await supabaseClient.auth.updateUser(
+                { email: (newEmail || '').trim() },
+                { emailRedirectTo: window.MV_URL('index.html') }
+            );
+            if (error) {
+                // Rate Limit unterscheidbar machen – vorher lief es in dieselbe
+                // generische Meldung wie "Adresse vergeben", weshalb Nutzer
+                // endlos weitergetippt und die Sperre verlängert haben.
+                const msg = (error.message || '').toLowerCase();
+                const isRateLimited = error.status === 429 ||
+                    msg.includes('rate limit') || msg.includes('you can only request');
+                return { success: false, code: isRateLimited ? 'rate_limited' : 'invalid', reason: error.message };
+            }
+            return { success: true, confirmationSent: true };
+        } catch (err) {
+            return { success: false, code: 'network_error', reason: err && err.message };
+        }
+    }
+
+    // Supabase führt eine angeforderte, noch nicht vollständig bestätigte
+    // Adresse in auth.users.email_change / user.new_email. Der Client hat das
+    // bisher nie gelesen – nach einem Reload war der Pending-State unsichtbar.
+    async function getPendingEmailChange() {
+        if (!isLoggedIn()) return null;
+        try {
+            const { data, error } = await supabaseClient.auth.getUser();
+            if (error || !data || !data.user) return null;
+            return data.user.new_email || null;
+        } catch {
+            return null;
+        }
     }
 
     // ==========================================================================
@@ -928,7 +1030,7 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
         getAdvancedModes, setAdvancedModes, getAdvancedMode, toggleAdvancedMode,
         bindAdvancedToggle,
         requestPasswordReset, resetPasswordWithToken, isPasswordRecoverySession,
-        requestEmailChange
+        requestEmailChange, getPendingEmailChange
     };
 
     // ==========================================================================

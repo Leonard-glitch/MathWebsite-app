@@ -10,7 +10,7 @@ const strengthWrapper = document.getElementById('strengthWrapper');
 const strengthFill    = document.getElementById('strengthFill');
 const strengthLabel   = document.getElementById('strengthLabel');
 
-const MIN_PW_LENGTH = 6;
+const MIN_PW_LENGTH = 8;
 
 window.MV.redirectIfLoggedIn("../index.html");
 

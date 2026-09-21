@@ -13,6 +13,55 @@ window.addEventListener('pageshow', (e) => {
     if (e.persisted) window.MV.redirectIfLoggedIn("../index.html");
 });
 
+// Reine UX-Bremse gegen Tipp-Loops und triviale Skripte – KEIN Sicherheits-
+// feature (per Konsole umgehbar). Der echte Schutz ist serverseitig
+const LOGIN_FAIL_KEY = 'mv-login-fails';
+const LOGIN_LOCK_KEY = 'mv-login-lock-until';
+const FAILS_BEFORE_LOCK = 5;
+
+function getLockRemaining() {
+    const until = parseInt(sessionStorage.getItem(LOGIN_LOCK_KEY) || '0', 10);
+    return Math.max(0, Math.ceil((until - Date.now()) / 1000));
+}
+
+function registerLoginFailure() {
+    const fails = parseInt(sessionStorage.getItem(LOGIN_FAIL_KEY) || '0', 10) + 1;
+    sessionStorage.setItem(LOGIN_FAIL_KEY, String(fails));
+    if (fails >= FAILS_BEFORE_LOCK) {
+        const seconds = Math.min(300, 30 * Math.pow(2, fails - FAILS_BEFORE_LOCK));
+        sessionStorage.setItem(LOGIN_LOCK_KEY, String(Date.now() + seconds * 1000));
+        startLockCountdown();
+    }
+}
+
+function clearLoginFailures() {
+    sessionStorage.removeItem(LOGIN_FAIL_KEY);
+    sessionStorage.removeItem(LOGIN_LOCK_KEY);
+}
+
+let lockTimer = null;
+function startLockCountdown() {
+    const submitBtn = form.querySelector('button[type="submit"]');
+    if (!submitBtn) return;
+    clearInterval(lockTimer);
+    const tick = () => {
+        const left = getLockRemaining();
+        if (left <= 0) {
+            clearInterval(lockTimer);
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Log in';
+            hideMsg(formError);
+            return;
+        }
+        submitBtn.disabled = true;
+        submitBtn.textContent = `Please wait (${left}s)`;
+        showMsg(formError, 'Too many failed attempts. Please wait a moment before trying again.');
+    };
+    tick();
+    lockTimer = setInterval(tick, 1000);
+}
+
+if (getLockRemaining() > 0) startLockCountdown();
 
 
 function setValid(input, errEl) {
@@ -95,6 +144,8 @@ passwordInput.addEventListener('input', () => {
 form.addEventListener('submit', async (e) => {
     e.preventDefault();
 
+    if (getLockRemaining() > 0) { startLockCountdown(); return; }
+
     hideMsg(usernameError);
     hideMsg(formError);
 
@@ -138,10 +189,12 @@ form.addEventListener('submit', async (e) => {
                 setError(usernameInput, null);
                 setError(passwordInput, formError, 'Email or password is incorrect.');
             }
+            if (result.reason !== 'network_error') registerLoginFailure();
             return;
         }
 
-        // ... (dein restlicher Code davor, wo Login/Register gecheckt wird)
+        clearLoginFailures();
+
 
         let baseUrl = window.MV_BASE || ''; 
         let returnUrl = sessionStorage.getItem('mv-return-url') || (baseUrl + '/index.html');
