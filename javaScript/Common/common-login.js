@@ -50,6 +50,7 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
     const CACHE_KEY = 'currentUser';       // gleicher Key wie zuvor -> theme-init.js
     const LOGGED_IN_KEY = 'isLoggedIn';    // liest ihn direkt, braucht daher KEINE Änderung
     const PENDING_REGISTRATION_KEY = 'mv-pending-registration';
+    const PENDING_REGISTRATION_TTL_MS = 24 * 60 * 60 * 1000;
     const HISTORY_LIMIT = 50;
 
     let cache = { id: null, email: null, profile: null, toolHistory: {} };
@@ -118,6 +119,18 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
         } catch { /* kaputter/fehlender Mirror - als Gast starten, hydrate() korrigiert */ }
         cache = { id: null, email: null, profile: null, toolHistory: {} };
     }
+
+    // Abgelaufene Pending-Registration entfernen, auch wenn sich nie jemand
+    // mit dieser Adresse anmeldet.
+    (function pruneExpiredPendingRegistration() {
+        try {
+            const stash = JSON.parse(localStorage.getItem(PENDING_REGISTRATION_KEY) || 'null');
+            if (!stash) return;
+            if (!stash.createdAt || Date.now() - stash.createdAt > PENDING_REGISTRATION_TTL_MS) {
+                localStorage.removeItem(PENDING_REGISTRATION_KEY);
+            }
+        } catch { localStorage.removeItem(PENDING_REGISTRATION_KEY); }
+    })();
 
     function persistMirror() {
         if (!cache.id || !cache.profile) {
@@ -248,11 +261,17 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
     async function applyPendingRegistrationIfMatching(userId, email) {
         let stash;
         try { stash = JSON.parse(localStorage.getItem(PENDING_REGISTRATION_KEY) || 'null'); } catch { stash = null; }
-        if (!stash || stash.email !== email) return;
-        // Sofort entfernen, VOR dem asynchronen Schreiben: verhindert, dass ein
-        // zweiter, parallel laufender hydrate()-Aufruf (z.B. durch den
-        // onAuthStateChange-Listener direkt nach signIn/signUp) dieselben Daten
-        // ein zweites Mal anwendet, bevor der erste Aufruf fertig ist.
+        if (!stash) return;
+
+        // Abgelaufen (nie bestätigte Registrierung): enthält die E-Mail-Adresse
+        // und lag bisher unbegrenzt im Browser.
+        const age = Date.now() - (stash.createdAt || 0);
+        if (!stash.createdAt || age > PENDING_REGISTRATION_TTL_MS) {
+            localStorage.removeItem(PENDING_REGISTRATION_KEY);
+            return;
+        }
+        if (stash.email !== email) return;
+
         localStorage.removeItem(PENDING_REGISTRATION_KEY);
         await applyRegistrationPayload(userId, stash.payload);
     }
@@ -412,8 +431,9 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
         // verfügbar, RLS würde einen Write jetzt ohnehin blocken. Payload für
         // den ersten Login nach Bestätigung zwischenspeichern.
         try {
-            localStorage.setItem(PENDING_REGISTRATION_KEY, JSON.stringify({ email, payload: rest }));
-        } catch { /* Storage voll o.ä. - nicht blockierend, Nutzer startet mit Standardwerten */ }
+            localStorage.setItem(PENDING_REGISTRATION_KEY,
+            JSON.stringify({ email, payload: rest, createdAt: Date.now() }));
+        } catch { /* Storage voll o.ä. – nicht blockierend */ }
 
         return { success: true, needsEmailConfirmation: true };
     }

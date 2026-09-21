@@ -219,15 +219,43 @@ fuelconsumption: { from: "l/100km", to: "mpg (US)" }
 
 // ==========================================================================
 // GESPEICHERTER ZUSTAND – zuletzt gewählte Kategorie + Einheiten pro Kategorie
-// (Login: user.toolStates, Gast: localStorage – siehe window.MV.getToolState/
-// setToolState). Die eingegebene Zahl wird bewusst NICHT gespeichert.
+//
+// Bewusst KEIN Modul-Snapshot mehr (vorher: "let savedUnitState = getToolState(...)"
+// beim Script-Parse). Drei Probleme daran:
+//  1. War hydrate() noch nicht durch, galt der Nutzer als Gast -> gelesen und
+//     geschrieben wurde der Gast-localStorage statt des Profils.
+//  2. Der Snapshot wurde nie nachgezogen und überschrieb beim nächsten Write
+//     den frischeren Serverstand (Last-Write-Wins mit alten Daten).
+//  3. Eingeloggt liefert getToolState() die LIVE-Referenz aus dem Cache –
+//     Mutationen daran veränderten den Cache ohne Persistierung.
+// Muster jetzt identisch zu Finanz-/Mathe-Rechner: frisch lesen, nur bei
+// Nutzeraktionen schreiben, per mv:staterestore nachziehen.
 // ==========================================================================
 const UNIT_STATE_KEY = "einheitenUmrechner";
-let savedUnitState = window.MV.getToolState(UNIT_STATE_KEY, null) || { lastCategory: null, units: {} };
-if (!savedUnitState.units) savedUnitState.units = {};
 
-function persistUnitState() {
-    window.MV.setToolState(UNIT_STATE_KEY, savedUnitState);
+let isRestoringUnitState = false;
+let lastKnownLoginState = window.MV.isLoggedIn();
+
+function readUnitState() {
+    const raw = window.MV.getToolState(UNIT_STATE_KEY, null);
+    const state = (raw && typeof raw === "object") ? raw : {};
+    return {
+        lastCategory: state.lastCategory || null,
+        units: { ...(state.units || {}) }   // Kopie, nie die Cache-Referenz
+    };
+}
+
+function writeUnitState(patch) {
+    if (isRestoringUnitState) return;       // Init/Restore darf nicht persistieren
+    window.MV.setToolState(UNIT_STATE_KEY, { ...readUnitState(), ...patch });
+}
+
+// Führt fn aus, ohne dass dabei etwas persistiert wird. Die Freigabe erfolgt
+// erst im nächsten Tick, damit auch nachgelagerte mv:staterestore-Listener
+// (z.B. applyState aus bindAdvancedToggle) nicht doch noch schreiben.
+function withRestoreGuard(fn) {
+    isRestoringUnitState = true;
+    try { fn(); } finally { setTimeout(() => { isRestoringUnitState = false; }, 0); }
 }
 
 function findCategoryButton(categoryKey) {
@@ -239,23 +267,37 @@ function findCategoryButton(categoryKey) {
 // gespeicherte Einheit (z.B. wegen ausgeschaltetem Advanced Mode) gerade
 // nicht in der aktiven Liste vorhanden ist.
 function applyUnitsForCurrentCategory() {
-const keys = Object.keys(getActiveUnits());
-const saved = savedUnitState.units[currentCategory];
-const defaults = categoryDefaults[currentCategory];
+    const keys = Object.keys(getActiveUnits());
+    const state = readUnitState();
+    const saved = state.units[currentCategory];
+    const defaults = categoryDefaults[currentCategory];
 
-einheitA.value = (saved && keys.includes(saved.from)) ? saved.from : (defaults ? defaults.from : keys[0]);
-einheitZ.value = (saved && keys.includes(saved.to)) ? saved.to : (defaults ? defaults.to : (keys[1] || keys[0]));
+    einheitA.value = (saved && keys.includes(saved.from)) ? saved.from : (defaults ? defaults.from : keys[0]);
+    einheitZ.value = (saved && keys.includes(saved.to))   ? saved.to   : (defaults ? defaults.to   : (keys[1] || keys[0]));
 
-savedUnitState.lastCategory = currentCategory;
-persistUnitState();
+    writeUnitState({ lastCategory: currentCategory });
 }
 
-// Speichert die aktuell gewählten Einheiten für die aktuelle Kategorie –
-// bei jeder manuellen Auswahl/jedem Tausch durch den Nutzer.
+// Speichert die aktuell gewählten Einheiten – nur bei manueller Auswahl/Tausch.
 function saveCurrentUnitsForCategory() {
-savedUnitState.units[currentCategory] = { from: einheitA.value, to: einheitZ.value };
-savedUnitState.lastCategory = currentCategory;
-persistUnitState();
+    const state = readUnitState();
+    state.units[currentCategory] = { from: einheitA.value, to: einheitZ.value };
+    writeUnitState({ lastCategory: currentCategory, units: state.units });
+}
+
+// Stellt Kategorie + Einheiten aus dem gespeicherten Zustand wieder her.
+function restoreUnitStateFromStorage() {
+    const state = readUnitState();
+    let startButton = null;
+
+    if (state.lastCategory) {
+        const isAdvancedCat = advancedCategoryNames.includes(state.lastCategory);
+        if (!isAdvancedCat || advancedCheckbox.checked) {
+            startButton = findCategoryButton(state.lastCategory);
+        }
+    }
+    if (!startButton) startButton = document.querySelector('[data-category="btnLength"]');
+    if (startButton) startButton.click();
 }
 
 // ==========================================================================
@@ -728,30 +770,35 @@ einheitZ.addEventListener("change", () => { saveCurrentUnitsForCategory(); calcu
 
 // Initialisierung beim Laden der Seite
 document.addEventListener("DOMContentLoaded", () => {
-// Muss VOR bindAdvancedToggle gelesen werden: dessen initialer Aufruf
-// ruft bereits applyUnitsForCurrentCategory() auf und würde
-// savedUnitState.lastCategory sonst vorzeitig auf "length" überschreiben.
-const initialLastCategory = savedUnitState.lastCategory;
-
-window.MV.bindAdvancedToggle(advancedCheckbox, "einheitenUmrechner", (isChecked) => {
-updateAdvancedCategoryVisibility(isChecked);
-updateDropdowns();
-applyUnitsForCurrentCategory();
-calculate();
+    withRestoreGuard(() => {
+        window.MV.bindAdvancedToggle(advancedCheckbox, UNIT_STATE_KEY, (isChecked) => {
+            updateAdvancedCategoryVisibility(isChecked);
+            updateDropdowns();
+            applyUnitsForCurrentCategory();
+            calculate();
+        });
+        restoreUnitStateFromStorage();
+    });
+    lastKnownLoginState = window.MV.isLoggedIn();
 });
 
-// Zuletzt verwendete Kategorie wiederherstellen – Advanced-Kategorien nur,
-// wenn Advanced Mode gerade aktiv ist, sonst Fallback auf Länge.
-let startButton = null;
-if (initialLastCategory) {
-const isAdvancedCat = advancedCategoryNames.includes(initialLastCategory);
-if (!isAdvancedCat || advancedCheckbox.checked) {
-startButton = findCategoryButton(initialLastCategory);
-}
-}
-if (!startButton) {
-startButton = document.querySelector('[data-category="btnLength"]');
-}
-if (startButton) startButton.click();
+// Zieht den Zustand nach, wenn sich die Datenquelle ändert: hydrate() nach dem
+// Laden (der Race-Fix), Cross-Tab-Änderungen, bfcache-Restore. Analog zu
+// refreshCurrencyFromStorage() im Finanzrechner.
+window.addEventListener("mv:staterestore", () => {
+    const nowLoggedIn = window.MV.isLoggedIn();
+    const loginChanged = nowLoggedIn !== lastKnownLoginState;
+    lastKnownLoginState = nowLoggedIn;
 
+    withRestoreGuard(() => {
+        if (loginChanged) {
+            // Login/Logout/verspätetes hydrate: kompletter Zustandswechsel
+            restoreUnitStateFromStorage();
+        } else {
+            // Gleiche Identität: nur Einheiten nachziehen, nicht die Kategorie
+            // wegreißen, während der Nutzer gerade arbeitet.
+            applyUnitsForCurrentCategory();
+        }
+        calculate();
+    });
 });
