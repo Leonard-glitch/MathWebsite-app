@@ -766,33 +766,63 @@ function renderHistoryList(onReuse) {
         return;
     }
 
-    // Newest first
-    historyOutput.innerHTML = entries.slice().reverse().map(entry => `
-        <div class="historyEntry" data-id="${entry.id}">
-            <button type="button" class="historyEntryMain" data-action="reuse" aria-label="Reuse expression">
-                <math-field read-only class="historyEntryExpr">${entry.expr}</math-field>
-                <span class="historyEntryResult">= ${entry.result}</span>
-            </button>
-            <span class="historyEntryTime">${formatHistoryTime(entry.timestamp)}</span>
-            <button type="button" class="historyEntryDelete" data-action="delete" aria-label="Delete entry">
-                <i class="fa fa-trash-o"></i>
-            </button>
-        </div>
-    `).join("");
 
     if (deleteWrapper) deleteWrapper.classList.toggle("is-visible", isOpen);
 
-    historyOutput.querySelectorAll(".historyEntry").forEach(row => {
-        const id = row.dataset.id;
-        row.querySelector('[data-action="reuse"]')?.addEventListener("click", () => {
-            const entry = window.MV.getToolHistory(MATH_HISTORY_KEY).find(e => e.id === id);
-            if (entry && typeof onReuse === "function") onReuse(entry.expr);
+        // Bewusst DOM-API statt innerHTML: entry.expr ist frei eingegebenes LaTeX,
+    // das über die DB zurückkommt. In einen Template-String gegossen wäre es
+    // ein Injection-Vektor – und weil der Refresh-Token im localStorage liegt,
+    // hätte ein Treffer dauerhafte Kontoübernahme bedeutet.
+    historyOutput.innerHTML = "";
+
+    entries.slice().reverse().forEach(entry => {
+        const row = document.createElement("div");
+        row.className = "historyEntry";
+        row.dataset.id = entry.id;
+
+        const mainBtn = document.createElement("button");
+        mainBtn.type = "button";
+        mainBtn.className = "historyEntryMain";
+        mainBtn.setAttribute("aria-label", "Reuse expression");
+
+        const exprField = document.createElement("math-field");
+        exprField.setAttribute("read-only", "");
+        exprField.className = "historyEntryExpr";
+        // .value setzt den LaTeX-Quelltext als Daten, nicht als Markup.
+        // Fallback, falls MathLive (noch) nicht definiert ist:
+        if ("value" in exprField) exprField.value = entry.expr;
+        else exprField.textContent = entry.expr;
+
+        const resultSpan = document.createElement("span");
+        resultSpan.className = "historyEntryResult";
+        resultSpan.textContent = `= ${entry.result}`;
+
+        mainBtn.append(exprField, resultSpan);
+
+        const timeSpan = document.createElement("span");
+        timeSpan.className = "historyEntryTime";
+        timeSpan.textContent = formatHistoryTime(entry.timestamp);
+
+        const delBtn = document.createElement("button");
+        delBtn.type = "button";
+        delBtn.className = "historyEntryDelete";
+        delBtn.setAttribute("aria-label", "Delete entry");
+        delBtn.innerHTML = '<i class="fa fa-trash-o"></i>';   // statisches Markup
+
+        mainBtn.addEventListener("click", () => {
+            const fresh = window.MV.getToolHistory(MATH_HISTORY_KEY).find(e => e.id === entry.id);
+            if (fresh && typeof onReuse === "function") onReuse(fresh.expr);
         });
-        row.querySelector('[data-action="delete"]')?.addEventListener("click", () => {
-            window.MV.deleteToolHistoryEntry(MATH_HISTORY_KEY, id);
+        delBtn.addEventListener("click", () => {
+            window.MV.deleteToolHistoryEntry(MATH_HISTORY_KEY, entry.id);
             renderHistoryList(onReuse);
         });
+
+        row.append(mainBtn, timeSpan, delBtn);
+        historyOutput.appendChild(row);
     });
+
+    if (deleteWrapper) deleteWrapper.classList.toggle("is-visible", isOpen);
 }
 
 function initHistoryPanel(onReuse) {

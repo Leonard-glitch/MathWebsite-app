@@ -1,6 +1,13 @@
 window.MV_BASE = ((document.currentScript || {}).src || '')
-    .replace(/\/javaScript\/Common\/common-login\.js([?#].*)?$/, '');
+    .replace(/\/javaScript\/Common\/common-login\.js([?#].*)?$/, '')
+    .replace(/\/+$/, '');            // NEU: nie ein trailing Slash
 
+// NEU: einzige Stelle, die Auth-Redirect-URLs baut. Garantiert genau einen
+// Slash zwischen Base und Pfad – ein doppelter Slash würde die Supabase-
+// Redirect-Allowlist nicht mehr matchen (Byte-Vergleich).
+window.MV_URL = function (path) {
+    return window.MV_BASE + '/' + String(path || '').replace(/^\/+/, '');
+};
 /* =============================================================================
  * VORAUSSETZUNG (muss VOR diesem Script geladen werden, in jeder HTML-Datei):
  *
@@ -346,7 +353,7 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
                 email, password,
                 options: {
                     data: { username }, // <- handle_new_user() liest username von hier
-                    emailRedirectTo: `${window.MV_BASE}/index.html`
+                    emailRedirectTo: window.MV_URL('index.html')
                 }
             }));
         } catch (err) {
@@ -379,7 +386,7 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
         const { error } = await supabaseClient.auth.resend({
             type: 'signup',
             email: (email || '').trim(),
-            options: { emailRedirectTo: `${window.MV_BASE}/index.html` }
+            options: { emailRedirectTo: window.MV_URL('index.html') }
         });
         if (error) return { success: false, reason: error.message };
         return { success: true };
@@ -425,12 +432,37 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
 
     async function deleteCurrentAccount() {
         if (!isLoggedIn()) return { success: false, reason: 'not_logged_in' };
-        const { error } = await supabaseClient.functions.invoke('delete-account');
-        if (error) {
-            console.error('[MV] Account deletion failed:', error.message, error);
-            return { success: false, reason: error.message || 'unknown_error' };
+
+        let result;
+        try {
+            result = await supabaseClient.functions.invoke('delete-account', { method: 'POST' });
+        } catch (err) {
+            console.error('[MV] Account deletion – Netzwerkfehler:', err);
+            return { success: false, reason: 'network_error' };
         }
+
+        if (result.error) {
+            // FunctionsHttpError liefert in error.message nur "non-2xx status code".
+            // Die echte Serverantwort steckt in error.context (Response-Objekt).
+            let detail = result.error.message || 'unknown_error';
+            try {
+                const body = await result.error.context?.json?.();
+                if (body && (body.message || body.error)) detail = body.message || body.error;
+            } catch { /* kein JSON-Body (z.B. CORS-/Netzwerkfehler) */ }
+            console.error('[MV] Account deletion failed:', detail, result.error);
+            return { success: false, reason: detail };
+        }
+
+        // Der Auth-User existiert nicht mehr: ein globaler signOut() würde 401
+        // liefern. 'local' entfernt nur den Token aus diesem Browser – genau das,
+        // was hier nötig ist, damit hydrate() nicht gegen einen toten User läuft.
+        try {
+            await supabaseClient.auth.signOut({ scope: 'local' });
+        } catch { /* egal – purge unten räumt hart auf */ }
+        purgeSupabaseAuthKeys();
+
         clearMirror();
+        clearLocalPersonalData();
         dispatchStateRestore();
         return { success: true };
     }
@@ -763,7 +795,7 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
     async function requestPasswordReset(email) {
         const { error } = await supabaseClient.auth.resetPasswordForEmail(
             (email || '').trim(),
-            { redirectTo: `${window.MV_BASE}/html/reset-password.html` }
+            { redirectTo: window.MV_URL('html/reset-password.html') }
         );
         // Kein unterschiedliches Verhalten bei Fehler zurückgeben (No-Enumeration).
         if (error) console.warn('[MV] Passwort-Reset-Anfrage:', error.message);
@@ -793,7 +825,7 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
         // wird, bevor Supabase die Session aus der URL verarbeitet hat.
         const { error } = await supabaseClient.auth.updateUser(
             { email: (newEmail || '').trim() },
-            { emailRedirectTo: `${window.MV_BASE}/index.html` }
+            { emailRedirectTo: window.MV_URL('index.html') }
         );
         if (error) return { success: false, reason: error.message };
         return { success: true, confirmationSent: true };

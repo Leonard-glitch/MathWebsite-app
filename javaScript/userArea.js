@@ -756,7 +756,10 @@ function initDeletePanel() {
             console.error('[MV] Account deletion failed:', result.reason);
             btn.disabled = false;
             btn.innerHTML = originalText;
-            alert(`Account deletion failed: ${result.reason || 'Unknown error'}. Please try again or contact support.`);
+            const msg = result.reason === 'network_error'
+                ? 'Could not reach the server. Please check your connection and try again.'
+                : `Account deletion failed: ${result.reason}. Please try again or contact support.`;
+            alert(msg);
             return;
         }
         alert('Account deleted. You will be redirected to the homepage.');
