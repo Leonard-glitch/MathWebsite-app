@@ -1189,7 +1189,7 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
         }
 
         const isAuthPage = path.includes('login') || path.includes('register') ||
-            path.includes('forgot-password') || path.includes('reset-password');
+            path.includes('forgot-password') || path.includes('reset-password') || path.includes('verify-email');
 
         if (isAuthPage && isLoggedIn()) {
             const returnUrl = sessionStorage.getItem('mv-return-url') || (window.MV_BASE + '/index.html');
