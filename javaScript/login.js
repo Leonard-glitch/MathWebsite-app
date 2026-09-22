@@ -205,7 +205,8 @@ form.addEventListener('submit', async (e) => {
             returnUrl.includes('login') || 
             returnUrl.includes('register') || 
             returnUrl.includes('forgot-password') || 
-            returnUrl.includes('reset-password')
+            returnUrl.includes('reset-password') ||
+            returnUrl.includes('verify-email')
         ) {
             returnUrl = baseUrl + '/index.html';
         }
