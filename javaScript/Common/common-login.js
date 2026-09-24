@@ -272,8 +272,11 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
         }
         if (stash.email !== email) return;
 
-        localStorage.removeItem(PENDING_REGISTRATION_KEY);
+        // Erst NACH applyRegistrationPayload() entfernen: schlägt der Write
+        // fehl, bleibt der Stash für einen erneuten Versuch beim nächsten
+        // Login erhalten, statt endgültig verloren zu gehen.
         await applyRegistrationPayload(userId, stash.payload);
+        localStorage.removeItem(PENDING_REGISTRATION_KEY);
     }
 
     // Guards overlapping hydrate() calls finishing out of order — only the
@@ -291,8 +294,9 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
                 return;
             }
 
-            await applyPendingRegistrationIfMatching(session.user.id, session.user.email);
-
+            // Bewusst NICHT mehr hier: lief sonst bei jedem Seitenaufruf/Auth-
+            // Event mit bestehender Session, nicht nur bei bewusstem Login –
+            // bleibt jetzt auf loginUser() beschränkt (siehe Reviewbericht).
             const fresh = await fetchFreshState(session.user.id, session.user.email);
             if (seq !== hydrateSeq) return; // newer hydrate() already started — discard stale result
             if (fresh) {
@@ -430,10 +434,20 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
         // E-Mail-Bestätigung aktiv (aktueller Stand bei dir): keine Session
         // verfügbar, RLS würde einen Write jetzt ohnehin blocken. Payload für
         // den ersten Login nach Bestätigung zwischenspeichern.
-        try {
-            localStorage.setItem(PENDING_REGISTRATION_KEY,
-            JSON.stringify({ email, payload: rest, createdAt: Date.now() }));
-        } catch { /* Storage voll o.ä. – nicht blockierend */ }
+        //
+        // AUSNAHME: Bei einer bereits bestätigten Email liefert Supabase auch
+        // hier error=null/session=null (Anti-Enumeration), aber identities=[].
+        // Dann NICHT stashen, sonst überschreibt diese Default-Payload beim
+        // nächsten Login des echten Accounts dessen echtes Profil. Rückgabewert
+        // bleibt in beiden Fällen identisch (No-Enumeration bleibt gewahrt).
+        const isExistingConfirmedEmail = data.user?.identities?.length === 0;
+
+        if (!isExistingConfirmedEmail) {
+            try {
+                localStorage.setItem(PENDING_REGISTRATION_KEY,
+                JSON.stringify({ email, payload: rest, createdAt: Date.now() }));
+            } catch { /* Storage voll o.ä. – nicht blockierend */ }
+        }
 
         return { success: true, needsEmailConfirmation: true };
     }
