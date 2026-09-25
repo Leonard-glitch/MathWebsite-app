@@ -1177,23 +1177,22 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
 
     window.addEventListener('storage', (e) => {
         if (!RESTORE_STORAGE_KEYS.includes(e.key)) return;
-        applyTheme(getThemeInit());
-        applyFontSize(getFontSizeInit());
-        applyDesign(getDesignInit());
         loadMirrorSync();
         dispatchStateRestore();
     });
 
-    // Zentrale Reaktion auf JEDES State-Restore-Signal (Logout, Cross-Tab-
-    // Änderungen, bfcache-Restore) – hält die Navbar in jedem Fall konsistent.
+    // Zentrale Reaktion auf JEDES State-Restore-Signal (initiales hydrate(),
+    // Cross-Tab-Änderungen, bfcache-Restore) – hält Navbar UND Theme/Design/
+    // Fontsize in jedem Fall konsistent, ohne dass ein manueller Reload nötig ist.
     window.addEventListener('mv:staterestore', syncNavUserArea);
-
-    window.addEventListener('pageshow', function (e) {
-        if (!e.persisted) return;
-
+    window.addEventListener('mv:staterestore', () => {
         applyTheme(getThemeInit());
         applyFontSize(getFontSizeInit());
         applyDesign(getDesignInit());
+    });
+
+    window.addEventListener('pageshow', function (e) {
+        if (!e.persisted) return;
 
         const path = window.location.pathname;
 
