@@ -355,7 +355,7 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
 
     loadMirrorSync();
     initialHydrateStarted = true;
-    hydrate();
+    if (!applyAuthGuard()) hydrate();   // schon umgeleitet -> hydrate() erübrigt sich
 
     // ==========================================================================
     // GRUNDLEGENDE GETTER
@@ -396,6 +396,41 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
         } else {
             window.location.href = path;
         }
+    }
+
+    // ==========================================================================
+    // ZENTRALER AUTH-GUARD – eine Stelle statt Pro-Seiten-Checks.
+    // Trigger: Initial Load, bfcache-pageshow, dispatchStateRestore() (Cross-Tab
+    // Login/Logout, Supabase SIGNED_IN/SIGNED_OUT/USER_UPDATED).
+    // reset-password.html bekommt bewusst NUR die ersten beiden Trigger
+    // (includeResetPassword=false beim dritten Aufruf): eine laufende
+    // Password-Recovery-Session darf nicht weggeleitet werden, falls
+    // PASSWORD_RECOVERY erst nach einem hydrate()-Durchlauf erkannt wird.
+    // Rückgabewert: true = es wurde bereits redirected.
+    // ==========================================================================
+    function applyAuthGuard(includeResetPassword = true) {
+        const path = window.location.pathname;
+
+        if (path.endsWith('userArea.html')) {
+            if (!isLoggedIn()) {
+                window.location.replace(window.MV_URL('html/login.html'));
+                return true;
+            }
+            return false;
+        }
+
+        const isGuestOnlyPage = path.includes('login') || path.includes('register') ||
+            path.includes('forgot-password') || path.includes('verify-email') ||
+            (includeResetPassword && path.includes('reset-password'));
+
+        if (isGuestOnlyPage && isLoggedIn()) {
+            const returnUrl = sessionStorage.getItem('mv-return-url');
+            sessionStorage.removeItem('mv-return-url');
+            window.location.replace(returnUrl || window.MV_URL('index.html'));
+            return true;
+        }
+
+        return false;
     }
 
     // ==========================================================================
@@ -1172,6 +1207,7 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
     const RESTORE_STORAGE_KEYS = ['currentUser', 'isLoggedIn', 'mv-currency', 'mv-theme', 'mv-design', 'mv-fontsize', 'mv-decimalPlaces', 'mv-liveResult', 'mv-angleMode', 'mv-toolHistory'];
 
     function dispatchStateRestore() {
+        if (applyAuthGuard(false)) return;   // false: reset-password bleibt ausgenommen
         window.dispatchEvent(new CustomEvent('mv:staterestore'));
     }
 
@@ -1192,29 +1228,13 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
     });
 
     window.addEventListener('pageshow', function (e) {
-        if (!e.persisted) return;
+    if (!e.persisted) return;
+    if (applyAuthGuard()) return;
 
-        const path = window.location.pathname;
-
-        if (path.endsWith('userArea.html') && !isLoggedIn()) {
-            window.location.replace(window.MV_BASE + '/html/login.html');
-            return;
-        }
-
-        const isAuthPage = path.includes('login') || path.includes('register') ||
-            path.includes('forgot-password') || path.includes('reset-password') || path.includes('verify-email');
-
-        if (isAuthPage && isLoggedIn()) {
-            const returnUrl = sessionStorage.getItem('mv-return-url') || (window.MV_BASE + '/index.html');
-            sessionStorage.removeItem('mv-return-url');
-            window.location.replace(returnUrl);
-            return;
-        }
-
-        // Navbar-Reset entfernt – läuft jetzt zentral über syncNavUserArea()
-        // via mv:staterestore (siehe unten), ausgelöst durch dispatchStateRestore().
-        hydrate();
-        dispatchStateRestore();
-    });
+    // Navbar-Reset entfernt – läuft jetzt zentral über syncNavUserArea()
+    // via mv:staterestore (siehe unten), ausgelöst durch dispatchStateRestore().
+    hydrate();
+    dispatchStateRestore();
+});
 
 })();

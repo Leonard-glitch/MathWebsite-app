@@ -5,10 +5,6 @@ const formError   = document.getElementById('formError');
 const submitBtn   = document.getElementById('submitBtn');
 const successBox  = document.getElementById('successBox');
 
-window.MV.redirectIfLoggedIn("../index.html");
-window.addEventListener('pageshow', (e) => {
-    if (e.persisted) window.MV.redirectIfLoggedIn("../index.html");
-});
 
 function showMsg(el, msg) { el.textContent = msg; el.style.display = 'block'; }
 function hideMsg(el) { if (el) el.style.display = 'none'; }

@@ -6,10 +6,6 @@ const verifyFormError = document.getElementById('verifyFormError');
 const PENDING_EMAIL_KEY = 'mv-pending-verify-email';
 const RESEND_COOLDOWN_SECONDS = 60;
 
-window.MV.redirectIfLoggedIn("../index.html");
-window.addEventListener('pageshow', (e) => {
-    if (e.persisted) window.MV.redirectIfLoggedIn("../index.html");
-});
 
 const pendingEmail = sessionStorage.getItem(PENDING_EMAIL_KEY) || '';
 

@@ -15,11 +15,6 @@ const strengthLabel    = document.getElementById('strengthLabel');
 
 const MIN_PW_LENGTH  = 8;
 
-window.MV.redirectIfLoggedIn("../index.html");
-
-window.addEventListener('pageshow', (e) => {
-    if (e.persisted) window.MV.redirectIfLoggedIn("../index.html");
-});
 
 // ===========================================================================
 // STATE HELPERS

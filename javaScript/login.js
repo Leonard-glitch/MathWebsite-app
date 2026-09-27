@@ -7,12 +7,6 @@ const usernameError  = document.getElementById('usernameError');
 const formError      = document.getElementById('formError');
 const toggleBtn      = document.getElementById('togglePassword');
 
-window.MV.redirectIfLoggedIn("../index.html");
-
-window.addEventListener('pageshow', (e) => {
-    if (e.persisted) window.MV.redirectIfLoggedIn("../index.html");
-});
-
 // Reine UX-Bremse gegen Tipp-Loops und triviale Skripte – KEIN Sicherheits-
 // feature (per Konsole umgehbar). Der echte Schutz ist serverseitig
 const LOGIN_FAIL_KEY = 'mv-login-fails';
