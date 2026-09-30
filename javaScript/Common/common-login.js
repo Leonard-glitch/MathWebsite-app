@@ -181,7 +181,9 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
     }
 
     function clearMirror() {
-        cache = { id: null, email: null, profile: null, toolHistory: {} };
+        hydrateSeq++; // invalidiert jeden noch laufenden hydrate()-Aufruf, damit
+                       // er den Cache nach diesem Clear nicht mehr überschreiben kann
+         cache = { id: null, email: null, profile: null, toolHistory: {} };
         localStorage.removeItem(CACHE_KEY);
         localStorage.removeItem(LOGGED_IN_KEY);
     }
@@ -326,12 +328,18 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
     // schon feuern kann, bevor reset-password.js seinen eigenen Listener
     // registriert hat, wird das Ergebnis zusätzlich in einem Flag gemerkt.
     let passwordRecoveryDetected = false;
+    let recoveryUserId = null;
     function isPasswordRecoverySession() { return passwordRecoveryDetected; }
 
     supabaseClient.auth.onAuthStateChange((event, session) => {
         if (event === 'PASSWORD_RECOVERY') {
             passwordRecoveryDetected = true;
+            recoveryUserId = session ? session.user.id : null;
             window.dispatchEvent(new CustomEvent('mv:passwordrecovery'));
+        }
+        if (event === 'SIGNED_OUT') {
+            passwordRecoveryDetected = false;
+            recoveryUserId = null;
         }
         if (!initialHydrateStarted || event === 'INITIAL_SESSION') return;
         if (skipNextAuthEvent && (event === 'SIGNED_IN' || event === 'SIGNED_OUT')) {
@@ -339,7 +347,8 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
             return;
         }
         if (event === 'SIGNED_OUT') {
-            if (cache.id) { clearMirror(); dispatchStateRestore(); }
+            clearMirror();
+            dispatchStateRestore();
             return;
         }
         if (event === 'SIGNED_IN' && session) {
@@ -408,22 +417,24 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
     // PASSWORD_RECOVERY erst nach einem hydrate()-Durchlauf erkannt wird.
     // Rückgabewert: true = es wurde bereits redirected.
     // ==========================================================================
-    function applyAuthGuard(includeResetPassword = true) {
-        const path = window.location.pathname;
+    // fromEvent=true bedeutet: der Aufruf kommt aus einem Cross-Tab-/bfcache-
+    // State-Restore, nicht vom initialen Laden der Seite.
+    function applyAuthGuard(fromEvent = false) {
+        const policy = document.body ? document.body.dataset.auth : undefined;
+        const loggedIn = isLoggedIn();
 
-        if (path.endsWith('userArea.html')) {
-            if (!isLoggedIn()) {
-                window.location.replace(window.MV_URL('html/login.html'));
-                return true;
-            }
-            return false;
+        if (policy === 'required' && !loggedIn) {
+            window.location.replace(window.MV_URL('html/login.html'));
+            return true;
         }
 
-        const isGuestOnlyPage = path.includes('login') || path.includes('register') ||
-            path.includes('forgot-password') || path.includes('verify-email') ||
-            (includeResetPassword && path.includes('reset-password'));
+        // 'recovery' (reset-password.html) wird nur beim initialen Laden wie
+        // guest-only behandelt, nie bei einem State-Restore-Event - eine
+        // aktive Recovery-Session darf nicht wegen eines anderen Tabs
+        // weggerissen werden.
+        const isGuestOnly = policy === 'guest-only' || (policy === 'recovery' && !fromEvent);
 
-        if (isGuestOnlyPage && isLoggedIn()) {
+        if (isGuestOnly && loggedIn) {
             const returnUrl = sessionStorage.getItem('mv-return-url');
             sessionStorage.removeItem('mv-return-url');
             window.location.replace(returnUrl || window.MV_URL('index.html'));
@@ -957,6 +968,14 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
         // automatisch aus der URL (detectSessionInUrl) und stellt eine befristete
         // Session her, BEVOR dieser Aufruf passiert.
         if (!newPassword || newPassword.length < 8) return { success: false, reason: 'weak_password' };
+        // Harte Absicherung gegen eine zwischenzeitliche Cross-Tab-Anmeldung:
+        // die aktuell aktive Session muss noch dieselbe sein, für die
+        // PASSWORD_RECOVERY ausgelöst wurde - sonst würde das Passwort eines
+        // fremden, inzwischen in einem anderen Tab eingeloggten Kontos geändert.
+        const { data: { session } } = await supabaseClient.auth.getSession();
+        if (!session || !recoveryUserId || session.user.id !== recoveryUserId) {
+            return { success: false, reason: 'session_mismatch' };
+        }
         const { error } = await supabaseClient.auth.updateUser({ password: newPassword });
         if (error) return { success: false, reason: error.message };
         return { success: true };
@@ -1207,7 +1226,7 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
     const RESTORE_STORAGE_KEYS = ['currentUser', 'isLoggedIn', 'mv-currency', 'mv-theme', 'mv-design', 'mv-fontsize', 'mv-decimalPlaces', 'mv-liveResult', 'mv-angleMode', 'mv-toolHistory'];
 
     function dispatchStateRestore() {
-        if (applyAuthGuard(false)) return;   // false: reset-password bleibt ausgenommen
+        if (applyAuthGuard(true)) return;   // true: State-Restore, recovery bleibt ausgenommen
         window.dispatchEvent(new CustomEvent('mv:staterestore'));
     }
 
@@ -1226,6 +1245,43 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
         applyFontSize(getFontSizeInit());
         applyDesign(getDesignInit());
     });
+
+    // ==========================================================================
+    // AKTIVE REVALIDIERUNG (Ergänzung zu den Events)
+    // Events können verloren gehen (gedrosselte Hintergrund-Tabs, zwei parallel
+    // sichtbare Fenster ohne Fokuswechsel). reconcileSession() fragt die SDK-
+    // lokale Wahrheit (getSession()) direkt ab und gleicht Cache/UI/Guard bei
+    // Bedarf nach - unabhängig davon, ob zuvor ein Event angekommen ist.
+    // ==========================================================================
+    async function reconcileSession() {
+        try {
+            const { data: { session } } = await supabaseClient.auth.getSession();
+            const sessionUserId = session ? session.user.id : null;
+
+            if (sessionUserId && !cache.id) {
+                await hydrate();
+            } else if (!sessionUserId && cache.id) {
+                clearMirror();
+                dispatchStateRestore();
+            } else if (sessionUserId && cache.id && sessionUserId !== cache.id) {
+                await hydrate();
+            }
+        } catch {
+            // offline/nicht erreichbar: Zustand unverändert lassen, nächster
+            // Trigger (Fokus, Sichtbarkeit, Intervall) versucht es erneut.
+        }
+    }
+
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') reconcileSession();
+    });
+    window.addEventListener('focus', reconcileSession);
+
+    // Deckt zwei gleichzeitig sichtbare Fenster ab (kein Fokus-/Sichtbarkeits-
+    // wechsel) - dafür bleibt nur ein Poll als Sicherheitsnetz.
+    setInterval(() => {
+        if (document.visibilityState === 'visible') reconcileSession();
+    }, 5000);
 
     window.addEventListener('pageshow', function (e) {
     if (!e.persisted) return;
