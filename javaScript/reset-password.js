@@ -54,6 +54,7 @@ function checkRecoveryAccess() {
 
 // The event may fire before or after this script runs — cover both orders.
 window.addEventListener('mv:passwordrecovery', checkRecoveryAccess);
+window.addEventListener('mv:staterestore', checkRecoveryAccess);
 checkRecoveryAccess();
 
 newPwInput.addEventListener('input', () => {
