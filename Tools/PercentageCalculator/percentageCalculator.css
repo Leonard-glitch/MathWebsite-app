@@ -100,13 +100,13 @@ input {
 }
 
 
-.buttonPercent:hover{
-    box-shadow: 
-        0 5px 15px var(--border-glow), 
-        0 10px 25px var(--border-glow);
+.buttonPercent:hover {
+    background-color: var(--border-glow);
+    box-shadow: 0 0 20px var(--glow-soft), var(--shadow-main);
+    transform: translateY(-2px);
 }
 
-.buttonPercent:active{
+.buttonPercent:active {
     transform: translateY(1px);
 }
 
@@ -155,7 +155,7 @@ input {
 
     color: var(--text-primary); 
 
-    border: 4px solid var(--border-color); 
+    border: 3px solid var(--border-color); 
     border-radius: 30px;
 
     outline: none;
@@ -168,9 +168,7 @@ input {
 }
 
 .outputStyle:hover{
-     box-shadow: 
-        0 5px 15px var(--glow-soft), 
-        0 10px 25px var(--glow-soft);
+     border-color: var(--border-glow);
 }
 
 .rechenwegDiv{
