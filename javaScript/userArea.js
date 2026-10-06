@@ -633,11 +633,17 @@ function initAppearancePanel() {
     }
 
     // Design speichern
-    saveBtn?.addEventListener('click', () => {
-        window.MV.setTheme(pendingTheme);
-        window.MV.setFontSize(pendingFontSize);
-        window.MV.setDesign(pendingDesign); // NEU
+    saveBtn?.addEventListener('click', async () => {
+        saveBtn.disabled = true;
+        const result = await window.MV.setAppearance({
+            theme: pendingTheme, design: pendingDesign, fontsize: pendingFontSize
+        });
+        saveBtn.disabled = false;
 
+        if (!result.success) {
+            alert('Saving failed. Please check your connection and try again.');
+            return;
+        }
         toast.classList.remove('hidden');
         setTimeout(() => toast.classList.add('hidden'), 3000);
     });

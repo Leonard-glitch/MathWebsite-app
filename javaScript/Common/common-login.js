@@ -36,8 +36,24 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
         CNY: 'Chinese Yuan', INR: 'Indian Rupee', BRL: 'Brazilian Real'
     };
 
+    // Schreibende Requests mit keepalive: überleben Navigation/bfcache-Wechsel.
+    // Browser-Limit: ~64 KiB Body pro offenem keepalive-Request, daher nur kleine Bodies.
+    const KEEPALIVE_MAX_BODY = 60000;
+    function mvFetch(input, init = {}) {
+        const method = (init.method || 'GET').toUpperCase();
+        const isWrite = method !== 'GET' && method !== 'HEAD';
+        const smallBody = init.body == null || (typeof init.body === 'string' && init.body.length < KEEPALIVE_MAX_BODY);
+        return fetch(input, isWrite && smallBody ? { ...init, keepalive: true } : init);
+    }
+
+    // Recovery-Seite: Session nur im Speicher dieses Tabs, nie im localStorage/Mirror.
+    const IS_RECOVERY_PAGE = !!document.body && document.body.dataset.auth === 'recovery';
+
     const supabaseClient = window.supabase.createClient(MV_SUPABASE_URL, MV_SUPABASE_ANON_KEY, {
-        auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
+        auth: IS_RECOVERY_PAGE
+            ? { persistSession: false, autoRefreshToken: false, detectSessionInUrl: true }
+            : { persistSession: true,  autoRefreshToken: true,  detectSessionInUrl: true },
+        global: { fetch: mvFetch }
     });
 
     // ==========================================================================
@@ -197,10 +213,12 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
         Object.assign(cache.profile, patch);
         persistMirror();
         const dbPatch = profilePatchToDbColumns(patch);
-        supabaseClient.from('profiles').update(dbPatch).eq('id', cache.id)
+        return supabaseClient.from('profiles').update(dbPatch).eq('id', cache.id)
             .then(({ error }) => {
                 if (error) console.warn('[MV] Speichern fehlgeschlagen (wird beim nächsten Laden ggf. zurückgesetzt):', error.message);
-            });
+                return { success: !error, reason: error ? error.message : null };
+            })
+            .catch(err => ({ success: false, reason: err && err.message }));
     }
 
     // ==========================================================================
@@ -286,6 +304,7 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
     let hydrateSeq = 0;
 
     async function hydrate() {
+        if (IS_RECOVERY_PAGE) return;   // Recovery-Session darf nie in Cache/Mirror landen
         const seq = ++hydrateSeq;
         try {
             const { data: { session } } = await supabaseClient.auth.getSession();
@@ -341,6 +360,7 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
             passwordRecoveryDetected = false;
             recoveryUserId = null;
         }
+        if (IS_RECOVERY_PAGE) return;   // isolierter Client: kein hydrate, kein clearMirror
         if (!initialHydrateStarted || event === 'INITIAL_SESSION') return;
         if (skipNextAuthEvent && (event === 'SIGNED_IN' || event === 'SIGNED_OUT')) {
             skipNextAuthEvent = false;
@@ -676,6 +696,21 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
     function setFontSize(size) {
         if (isLoggedIn()) { patchProfileOptimistic({ fontsize: size }); }
         else { localStorage.setItem('mv-fontsize', String(size)); }
+    }
+
+    // Theme + Design + Schriftgröße als EIN Patch (ein Request statt drei), awaitbar.
+    function setAppearance({ theme, design, fontsize }) {
+        const patch = {};
+        if (theme    !== undefined) patch.theme    = theme;
+        if (design   !== undefined) patch.design   = design;
+        if (fontsize !== undefined) patch.fontsize = fontsize;
+
+        if (isLoggedIn()) return patchProfileOptimistic(patch);
+
+        if (patch.theme    !== undefined) localStorage.setItem('mv-theme', patch.theme);
+        if (patch.design   !== undefined) localStorage.setItem('mv-design', patch.design);
+        if (patch.fontsize !== undefined) localStorage.setItem('mv-fontsize', String(patch.fontsize));
+        return Promise.resolve({ success: true });
     }
 
     function getAngleMode() {
@@ -1089,6 +1124,16 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
         overlay.style.display = 'flex';
     }
 
+    // Beendet die temporäre Recovery-Session (nur auf der Recovery-Seite erlaubt).
+    // scope 'local': widerruft nur DIESE Session, andere Geräte/Tabs bleiben eingeloggt.
+    async function endRecoverySession() {
+        if (!IS_RECOVERY_PAGE) return { success: false, reason: 'not_recovery_page' };
+        try { await supabaseClient.auth.signOut({ scope: 'local' }); } catch { /* Session lebt nur im Speicher */ }
+        passwordRecoveryDetected = false;
+        recoveryUserId = null;
+        return { success: true };
+    }
+
     // ==========================================================================
     // PUBLIC API
     // ==========================================================================
@@ -1098,7 +1143,7 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
         getFavorites, setFavorites, toggleFavorite,
         getPinnedGroups, setPinnedGroups,
         getContainerOrders, setContainerOrders,
-        getTheme, setTheme, getFontSize, setFontSize,
+        getTheme, setTheme, getFontSize, setFontSize, setAppearance,
         getDesign, setDesign,
         getAngleMode, setAngleMode,
         applyTheme, applyFontSize, applyDesign,
@@ -1118,7 +1163,7 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
         getAdvancedModes, setAdvancedModes, getAdvancedMode, toggleAdvancedMode,
         bindAdvancedToggle,
         requestPasswordReset, resetPasswordWithToken, isPasswordRecoverySession,
-        requestEmailChange, getPendingEmailChange
+        requestEmailChange, getPendingEmailChange, endRecoverySession
     };
 
     // ==========================================================================
@@ -1254,6 +1299,7 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
     // Bedarf nach - unabhängig davon, ob zuvor ein Event angekommen ist.
     // ==========================================================================
     async function reconcileSession() {
+        if (IS_RECOVERY_PAGE) return;
         try {
             const { data: { session } } = await supabaseClient.auth.getSession();
             const sessionUserId = session ? session.user.id : null;
@@ -1285,6 +1331,7 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
 
     window.addEventListener('pageshow', function (e) {
     if (!e.persisted) return;
+    loadMirrorSync();   // In-Memory-Cache auf den aktuellen Mirror ziehen (bfcache-Cache kann veraltet sein)
     if (applyAuthGuard()) return;
 
     // Navbar-Reset entfernt – läuft jetzt zentral über syncNavUserArea()

@@ -38,18 +38,22 @@ function updateStrengthBar(pw) {
     strengthLabel.textContent = labels[lvl];
 }
 
+// Genau EINE Box ist sichtbar. "locked" = Endzustand: Events dürfen nichts mehr ändern.
+let viewLocked = false;
+
+function setView(view, lock = false) {
+    if (viewLocked) return;
+    viewLocked = lock;
+    formContainer.style.display = view === 'form'    ? ''      : 'none';
+    invalidBox.style.display    = view === 'invalid' ? 'block' : 'none';
+    successBox.style.display    = view === 'success' ? 'block' : 'none';
+}
+
 // Supabase's detectSessionInUrl parses the recovery link from the URL and
-// establishes a temporary session automatically — there is no token left
-// for us to validate manually. common-login.js tracks whether that happened
-// via the 'PASSWORD_RECOVERY' auth event, exposed here.
+// establishes a temporary session automatically — there is no token left to
+// validate manually. common-login.js tracks this via the PASSWORD_RECOVERY event.
 function checkRecoveryAccess() {
-    if (window.MV.isPasswordRecoverySession()) {
-        formContainer.style.display = '';
-        invalidBox.style.display = 'none';
-    } else {
-        formContainer.style.display = 'none';
-        invalidBox.style.display = 'block';
-    }
+    setView(window.MV.isPasswordRecoverySession() ? 'form' : 'invalid');
 }
 
 // The event may fire before or after this script runs — cover both orders.
@@ -98,13 +102,19 @@ form.addEventListener('submit', async (e) => {
     if (!result.success) {
         submitBtn.disabled = false;
         submitBtn.textContent = originalBtnText;
-        formContainer.style.display = 'none';
-        invalidBox.style.display = 'block';
+        if (result.reason === 'session_mismatch') {
+            setView('invalid', true);
+        } else if ((result.reason || '').toLowerCase().includes('different from the old')) {
+            setError(newPwInput);
+            showMsg(formError, 'The new password must be different from your old password.');
+        } else {
+            showMsg(formError, 'Could not update the password. Please try again.');
+        }
         return;
     }
 
-    formContainer.style.display = 'none';
-    successBox.style.display = 'block';
+    setView('success', true);
+    await window.MV.endRecoverySession();
 });
 
 function setupPasswordToggle(toggleId, inputEl) {
