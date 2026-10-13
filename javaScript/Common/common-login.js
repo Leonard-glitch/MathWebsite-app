@@ -43,7 +43,10 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
         const method = (init.method || 'GET').toUpperCase();
         const isWrite = method !== 'GET' && method !== 'HEAD';
         const smallBody = init.body == null || (typeof init.body === 'string' && init.body.length < KEEPALIVE_MAX_BODY);
-        return fetch(input, isWrite && smallBody ? { ...init, keepalive: true } : init);
+        const opts = isWrite 
+        ? (smallBody ? { ...init, keepalive: true } : init) 
+        : { ...init, cache: 'no-store' };
+        return fetch(input, opts);
     }
 
     // Recovery-Seite: Session nur im Speicher dieses Tabs, nie im localStorage/Mirror.
