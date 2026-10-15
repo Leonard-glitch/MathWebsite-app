@@ -104,3 +104,105 @@
     opacity: 1;
     transform: translateX(-3px); /* Subtiler Hover-Effekt nach links */
 }
+
+
+/* ==========================================================================
+   ADDITIONS FOR LEGAL PAGES – append to the end of css/legalStuffPages.css
+   (summary box, table of contents, tables, links, draft markers)
+   ========================================================================== */
+
+/* Links inside the legal card (default browser blue is unreadable on dark designs) */
+.legalCard a {
+    color: var(--accent-live);
+}
+
+.legalCard a:hover {
+    text-decoration: underline;
+}
+
+.legalCard code {
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 0.85em;
+    color: var(--text-primary);
+    word-break: break-all;
+}
+
+/* "In short" summary box at the top of the privacy policy */
+.legalSummary {
+    background: var(--bg-input);
+    border: 1px solid var(--border-color);
+    border-left: 4px solid var(--accent-live);
+    border-radius: var(--radius-sm);
+    padding: 1.2rem 1.5rem;
+    margin-bottom: 2rem;
+}
+
+.legalSummary h2 {
+    margin-top: 0;
+}
+
+.legalSummary ul {
+    margin-bottom: 0;
+}
+
+/* Table of contents */
+.legalCard ol {
+    margin-left: 1.5rem;
+    margin-bottom: 1.2rem;
+}
+
+.legalCard ol li {
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    line-height: 1.6;
+    margin-bottom: 0.3rem;
+}
+
+/* Tables (browser-storage keys, providers, retention periods) */
+.legalTableWrap {
+    overflow-x: auto;
+    margin-bottom: 1.4rem;
+}
+
+.legalTable {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+.legalTable th,
+.legalTable td {
+    text-align: left;
+    vertical-align: top;
+    padding: 0.6rem 0.8rem;
+    border: 1px solid var(--border-color);
+    line-height: 1.5;
+}
+
+.legalTable th {
+    background: var(--bg-input);
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
+@media (max-width: 768px) {
+    .legalTable {
+        font-size: 0.78rem;
+    }
+
+    .legalTable th,
+    .legalTable td {
+        padding: 0.5rem 0.6rem;
+    }
+}
+
+/* Draft markers: everything that still needs confirmation before publishing.
+   REMOVE this rule (and all <mark class="todo"> in the HTML) once the pages are final. */
+mark.todo {
+    background: rgba(255, 183, 0, 0.18);
+    color: var(--star-active);
+    border: 1px dashed var(--star-active);
+    border-radius: 4px;
+    padding: 0 0.3em;
+}
