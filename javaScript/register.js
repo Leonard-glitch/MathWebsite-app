@@ -4,6 +4,7 @@ const emailInput       = document.getElementById('email');
 const passwordInput    = document.getElementById('password');
 const passwordConfInput = document.getElementById('passwordConf');
 const privacyCheckbox  = document.getElementById('privacyAccept');
+const termsCheckbox    = document.getElementById('termsAccept');
 
 const usernameError    = document.getElementById('usernameError');
 const emailError       = document.getElementById('emailError');
@@ -49,7 +50,7 @@ function showMsg(el, msg) {
 function hideMsg(el) {
     if (!el) return;
     el.style.display = 'none';
-    el.textContent = ''; // <-- Diese Zeile fixt deinen Fehler!
+    el.textContent = ''; 
 }
 
 function showSuccessMsg(el, msg) {
@@ -64,10 +65,6 @@ function showSuccessMsg(el, msg) {
 // ===========================================================================
 // VALIDATION FUNCTIONS
 // ===========================================================================
-/**
- * @param {boolean} silent – true = set classes only, no error text changes
- * @returns {boolean} – true if valid
- */
 async function validateUsername(silent = false) {
     const val = usernameInput.value.trim();
 
@@ -107,9 +104,6 @@ function validateEmail(silent = false) {
         if (!silent) showMsg(emailError, 'Please enter a valid email address.');
         return false;
     }
-    // Keine Live-Duplikatsprüfung mehr möglich (window.MV.isEmailTaken existiert
-    // bewusst nicht mehr — Enumeration-Risiko). Ein Duplikat wird jetzt erst
-    // beim Absenden über die Server-Antwort von registerUser() erkannt.
     setValid(emailInput);
     if (!silent) hideMsg(emailError);
     return true;
@@ -239,7 +233,6 @@ passwordConfInput.addEventListener('input', () => {
     }
     if (formError.textContent.includes('match')) hideMsg(formError);
 
-    // Real-time match
     const pw  = passwordInput.value;
     const pwc = passwordConfInput.value;
     if (pw && pwc && pw === pwc && pw.length >= MIN_PW_LENGTH) {
@@ -255,6 +248,12 @@ privacyCheckbox.addEventListener('change', () => {
     }
 });
 
+termsCheckbox.addEventListener('change', () => {
+    if (termsCheckbox.checked && (formError.textContent.includes('Terms') || formError.textContent.includes('terms'))) {
+        hideMsg(formError);
+    }
+});
+
 let isSubmitting = false;
 
 // SUBMIT HANDLER
@@ -262,7 +261,6 @@ let isSubmitting = false;
 form.addEventListener('submit', async (e) => {
     e.preventDefault();
 
-    // NEU: Wenn bereits gesendet wird, sofort abbrechen!
     if (isSubmitting) return;
 
     hideMsg(usernameError);
@@ -279,7 +277,7 @@ form.addEventListener('submit', async (e) => {
         showMsg(usernameError, 'Please enter a username.');
         valid = false;
         firstErrorInput = firstErrorInput || usernameInput;
-        } else if (!window.MV.isUsernameFormatValid(uname)) {
+    } else if (!window.MV.isUsernameFormatValid(uname)) {
         setError(usernameInput);
         showMsg(usernameError, 'Only letters, numbers, _, - and . are allowed (3–20 characters).');
         valid = false;
@@ -299,7 +297,6 @@ form.addEventListener('submit', async (e) => {
         showMsg(emailError, 'Please enter a valid email address.');
         valid = false;
         firstErrorInput = firstErrorInput || emailInput;
-    // Duplikat-E-Mail wird erst nach registerUser() unten erkannt.
     } else {
         setValid(emailInput);
     }
@@ -341,15 +338,19 @@ form.addEventListener('submit', async (e) => {
         valid = false;
     }
 
+    // 6. Terms of Service Checkbox
+    if (!termsCheckbox.checked) {
+        if (!formError.textContent) showMsg(formError, 'You must accept the Terms of Service.');
+        valid = false;
+    }
+
     // EVALUATION
     if (!valid) {
-        // Scroll to first error field if something is invalid
         if (firstErrorInput) {
             firstErrorInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
             firstErrorInput.focus();
         }
     } else {
-        // NEU: Flag setzen und Button deaktivieren, um Mehrfach-Klicks zu verhindern
         isSubmitting = true;
         const submitBtn = form.querySelector('button[type="submit"]');
         if (submitBtn) {
@@ -359,7 +360,6 @@ form.addEventListener('submit', async (e) => {
             submitBtn.textContent = 'Registering...';
         }
 
-        // IF EVERYTHING IS VALID: Register and log in user
         const result = await window.MV.registerUser({
             username: uname,
             email: emailInput.value.trim(),
@@ -376,7 +376,6 @@ form.addEventListener('submit', async (e) => {
             toolHistory: window.MV.getAllGuestToolHistory(),
             toolStates: window.MV.getAllGuestToolStates(),
             isPro: false,
-
             createdAt: Date.now()
         });
 
@@ -402,11 +401,10 @@ form.addEventListener('submit', async (e) => {
 
         window.MV.clearGuestToolHistoryStore();
 
-        // Email-Bestätigung nötig -> noch keine Session -> NICHT zur Homepage redirecten
         if (result.needsEmailConfirmation) {
             try {
                 sessionStorage.setItem('mv-pending-verify-email', emailInput.value.trim());
-            } catch { /* Storage voll o.ä. - verify-email.html fragt notfalls erneut */ }
+            } catch { /* ignore */ }
             window.location.href = 'verify-email.html';
             return;
         }
@@ -415,7 +413,6 @@ form.addEventListener('submit', async (e) => {
         let returnUrl = sessionStorage.getItem('mv-return-url') || (baseUrl + '/index.html');
         sessionStorage.removeItem('mv-return-url');
 
-        // SECURITY CHECK: Prevents redirect loops for ALL auth pages
         if (
             returnUrl.includes('login') || 
             returnUrl.includes('register') || 
@@ -427,12 +424,6 @@ form.addEventListener('submit', async (e) => {
         }
 
         window.location.href = returnUrl;
-    }
-});
-
-privacyCheckbox.addEventListener('change', () => {
-    if (privacyCheckbox.checked && formError.textContent.includes('privacy')) {
-        hideMsg(formError);
     }
 });
 
