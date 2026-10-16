@@ -76,8 +76,11 @@
 
 /* Optimierung für mobile Geräte */
 @media (max-width: 768px) {
+    .legalContainer{
+        padding: 0.5rem;
+    }
     .legalCard {
-        padding: 1.5rem;
+        padding: 0.5rem;
     }
     
     .legalCard h2 {
