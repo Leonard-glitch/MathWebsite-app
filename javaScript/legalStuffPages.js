@@ -1,11 +1,11 @@
 document.getElementById('back-link').addEventListener('click', function(e) {
-      e.preventDefault(); // Verhindert das normale Öffnen der href="/"
+      e.preventDefault();
       
-      // Prüft, ob ein interner Verlauf existiert
-      if (document.referrer && document.referrer.includes(window.location.host)) {
+      // Prüft, ob es eine vorherige Seite in diesem Tab gibt
+      if (window.history.length > 1) {
           window.history.back();
       } else {
-          // Fallback: Wenn kein Verlauf da ist oder COOP ihn isoliert hat
+          // Fallback, falls der Tab komplett neu geöffnet wurde
           window.location.href = '/'; 
       }
   });
