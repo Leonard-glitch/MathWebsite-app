@@ -22,7 +22,7 @@
     <title>Privacy Policy – Globomath</title>
 
 </head>
-<body>
+<body data-consent-gate="off">
 
     <main class="legalContainer">
         <a href="/" id="back-link" class="back-link">Back</a>
@@ -126,17 +126,19 @@
             <ul>
                 <li>your email address, a username and your password</li>
                 <li>technical account data: account ID, creation date, confirmation status</li>
+                <li>proof of your agreement: the versions of the Privacy Policy and the Terms of Service you accepted, the date and time of each acceptance (in UTC), a fingerprint (hash) of the document text of that version, and the fact that you confirmed that you are at least 14 years old</li>
                 <li>session data and security data from the authentication service, such as your IP address, browser type and timestamps when you sign in</li>
             </ul>
             <p><strong>How it works:</strong></p>
             <ul>
                 <li><strong>Registration:</strong> after you register, we send a confirmation link to your email address. The account is activated when you click it.</li>
+                <li><strong>Proof of acceptance:</strong> when you tick the boxes during registration (or confirm updated documents after logging in), our server records which version you accepted and when. The versions and the time are set by our server, not by your browser. We do not store your IP address or browser details for this purpose. You can see these records in your own account data on request (<a href="#s16">section 16</a>).</li>
                 <li><strong>Username:</strong> your username is only used for your own account and is not visible to other users. When you choose a username, our database checks whether it is still available.</li>
                 <li><strong>Password:</strong> your password is never stored in plain text. It is stored in securely hashed form by our authentication provider.</li>
                 <li><strong>Login:</strong> you sign in with your email address and password. Your login session is kept in your browser until you log out or the session expires.</li>
                 <li><strong>Password reset and email change:</strong> we send you a link by email. When you change your email address, confirmation links are sent to your current and your new address, and both must be confirmed. Until then, your current address stays active.</li>
             </ul>
-            <p><strong>Purpose and legal basis:</strong> providing and securing the account you request (Art. 6(1)(b) and 6(1)(f) GDPR). Authentication and the database are provided by Supabase (see <a href="#s13">section 13</a>); the database is located in Frankfurt, Germany (EU).</p>
+            <p><strong>Purpose and legal basis:</strong> providing and securing the account you request (Art. 6(1)(b) and 6(1)(f) GDPR). The proof of acceptance is stored so that we can show which documents you agreed to if there is a dispute (Art. 6(1)(b) and 6(1)(f) GDPR: concluding the agreement on the use of your account, and our legitimate interest in establishing, exercising or defending legal claims). Authentication and the database are provided by Supabase (see <a href="#s13">section 13</a>); the database is located in Frankfurt, Germany (EU).</p>
             <p>Accounts are for users aged 14 or older (see <a href="#s19">section 19</a>).</p>
 
             <!-- 6 -->
@@ -154,7 +156,7 @@
 
             <!-- 7 -->
             <h2 id="s7">7. Deleting your account</h2>
-            <p>You can delete your account at any time in the User Area ("Delete account"), or by emailing us (see <a href="#s16">section 16</a>). When you delete your account, your account, profile and calculation history are removed from our database. This cannot be undone.</p>
+            <p>You can delete your account at any time in the User Area ("Delete account"), or by emailing us (see <a href="#s16">section 16</a>). When you delete your account, your account, profile, calculation history and the records of your acceptance of our documents are removed from our database. This cannot be undone.</p>
             <p>Some residual copies cannot be removed immediately and expire after their regular retention period: technical logs at our providers (<a href="#s3">section 3</a>, <a href="#s11">section 11</a>), delivery records of transactional emails (<a href="#s9">section 9</a>) and emails in our mailbox (<a href="#s9">section 9</a>). See <a href="#s15">section 15</a>.</p>
             <p>Registrations that are never confirmed by email are deleted automatically after 14 days. <mark class="todo">[CONFIRM: the automatic cleanup script is in place before launch]</mark></p>
 
@@ -250,6 +252,7 @@
                     </thead>
                     <tbody>
                         <tr><td>Account and profile data</td><td>Until you delete your account</td></tr>
+                        <tr><td>Proof of acceptance (versions and times of acceptance of the Privacy Policy and Terms of Service)</td><td>Until you delete your account; unconfirmed registrations are deleted automatically after 14 days together with this record</td></tr>
                         <tr><td>Calculation history</td><td>Until you delete entries or your account; only the most recent entries are kept (currently up to 50 per tool)</td></tr>
                         <tr><td>Unconfirmed registrations</td><td>Deleted automatically after 14 days</td></tr>
                         <tr><td>Login session</td><td>Until you log out or the session expires</td></tr>

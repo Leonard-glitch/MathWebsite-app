@@ -72,6 +72,13 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
     const PENDING_REGISTRATION_TTL_MS = 24 * 60 * 60 * 1000;
     const HISTORY_LIMIT = 50;
 
+    // Re-Consent (siehe Abschnitt "RECHTSTEXTE" weiter unten). Der Merker spart nur
+    // wiederholte Abfragen; er ist KEINE Sicherheitsgrenze (die Zustimmung selbst
+    // liegt ausschließlich in der Datenbank).
+    const CONSENT_OK_KEY = 'mv-consent-ok';
+    const CONSENT_OK_TTL_MS = 15 * 60 * 1000;
+    const LEGAL_DOC_TYPES = ['privacy_policy', 'terms_of_service'];
+
     let cache = { id: null, email: null, profile: null, toolHistory: {} };
 
     function isLoggedIn() { return !!cache.id; }
@@ -194,6 +201,7 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
             toolStateKeys.forEach(k => localStorage.removeItem(k));
             sessionStorage.removeItem('mv-return-url');
             sessionStorage.removeItem('mv-pending-verify-email');
+            sessionStorage.removeItem(CONSENT_OK_KEY);
             sessionStorage.removeItem('mv-login-fails');
             sessionStorage.removeItem('mv-login-lock-until');
         } catch { /* Storage nicht verfügbar */ }
@@ -327,6 +335,7 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
                 cache = fresh;
                 persistMirror();
                 dispatchStateRestore();
+                checkLegalConsent();   // bewusst ohne await: blockiert das Laden nicht
             }
         } catch (err) {
             // Netzwerk/Supabase nicht erreichbar: Cache bleibt auf dem Stand des
@@ -472,7 +481,17 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
     // ==========================================================================
 
     async function registerUser(userData) {
-        const { username, email, password, ...rest } = userData;
+        // consent = { privacy: boolean, terms: boolean } - die gesetzten Checkboxen.
+        // Wird bewusst aus `rest` herausgenommen, damit es nicht in der
+        // Pending-Registration im localStorage / im Profil landet.
+        const { username, email, password, consent, ...rest } = userData;
+
+        // Frühe Ablehnung (UX). Die eigentliche Durchsetzung passiert serverseitig
+        // (Trigger record_signup_consent auf auth.users): ein Aufruf von
+        // /auth/v1/signup an dieser Funktion vorbei scheitert dort ebenfalls.
+        if (!consent || consent.privacy !== true || consent.terms !== true) {
+            return { success: false, reason: 'consent_required' };
+        }
 
         skipNextAuthEvent = true;
         let data, error;
@@ -480,7 +499,10 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
             ({ data, error } = await supabaseClient.auth.signUp({
                 email, password,
                 options: {
-                    data: { username }, // <- handle_new_user() liest username von hier
+                    // username: handle_new_user() liest ihn von hier.
+                    // consent_*: NUR Wahrheitswerte. Versionen, Zeitpunkt und
+                    // Dokument-Hash vergibt der Server (Tabelle user_consents).
+                    data: { username, consent_privacy: true, consent_terms: true },
                     emailRedirectTo: window.MV_URL('index.html')
                 }
             }));
@@ -1064,10 +1086,12 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
     // ==========================================================================
 
     let modalReady = false;
+    let modalStyleReady = false;
 
-    function injectModal() {
-        if (modalReady) return;
-        modalReady = true;
+    // Gemeinsame Modal-Styles (Login-Prompt UND Re-Consent-Dialog).
+    function injectModalStyle() {
+        if (modalStyleReady) return;
+        modalStyleReady = true;
 
         const style = document.createElement('style');
         style.textContent = `
@@ -1092,8 +1116,25 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
             .mv-modalBtnSecondary:hover { color: var(--text-primary); border-color: var(--text-secondary); }
             @keyframes mvFadeIn { from { opacity: 0; } to { opacity: 1; } }
             @keyframes mvScaleIn { from { transform: scale(0.9); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+            .mv-consentBox { max-width: 460px; max-height: 90vh; overflow-y: auto; }
+            .mv-consentRow { display: flex; align-items: flex-start; gap: 0.6rem; text-align: left;
+                margin-bottom: 0.9rem; font-size: 0.8rem; color: var(--text-secondary); line-height: 1.5; cursor: pointer; }
+            .mv-consentRow input { accent-color: var(--border-glow); width: 16px; height: 16px;
+                margin-top: 3px; flex-shrink: 0; cursor: pointer; }
+            .mv-consentRow a { color: var(--border-glow); font-weight: 600; text-decoration: none; }
+            .mv-consentRow a:hover { text-decoration: underline; }
+            .mv-consentNotice, .mv-consentError { font-size: 0.78rem; line-height: 1.5; margin: 0 0 1rem; text-align: left; }
+            .mv-consentNotice { color: var(--text-secondary); }
+            .mv-consentError { color: var(--accent-error); }
+            .mv-modalActions button[disabled] { opacity: 0.5; cursor: not-allowed; box-shadow: none; }
         `;
         document.head.appendChild(style);
+    }
+
+    function injectModal() {
+        if (modalReady) return;
+        modalReady = true;
+        injectModalStyle();
 
         const overlay = document.createElement('div');
         overlay.className = 'mv-modalOverlay';
@@ -1127,6 +1168,243 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
         overlay.style.display = 'flex';
     }
 
+    // ==========================================================================
+    // RECHTSTEXTE: aktuelle Versionen + Re-Consent
+    //
+    // Die Zustimmung wird AUSSCHLIESSLICH serverseitig protokolliert:
+    //   - Registrierung: Trigger record_signup_consent() auf auth.users
+    //   - Bestandsnutzer / neue Versionen: RPC accept_legal_documents()
+    // Der Client liefert nur Checkbox-Werte. Versionen, Zeitpunkt und Dokument-Hash
+    // vergibt der Server. Die hier gelesenen Versionen dienen nur der Anzeige und
+    // einer Prüfung "habe ich die aktuelle Version gesehen?" - nie als Quelle.
+    // ==========================================================================
+
+    // Aktuelle Versionen (öffentlich lesbar, auch für Gäste). null bei Fehler.
+    async function getCurrentLegalDocuments() {
+        try {
+            const { data, error } = await supabaseClient
+                .from('legal_documents')
+                .select('doc_type, version, effective_at')
+                .eq('is_current', true);
+            if (error || !Array.isArray(data)) return null;
+            const out = {};
+            data.forEach(row => { out[row.doc_type] = { version: row.version, effectiveAt: row.effective_at }; });
+            return LEGAL_DOC_TYPES.every(t => out[t]) ? out : null;
+        } catch {
+            return null;
+        }
+    }
+
+    let consentCheckRunning = false;
+
+    function removeConsentModal() {
+        const el = document.getElementById('mvConsentModal');
+        if (el) el.remove();
+    }
+
+    function rememberConsentOk(uid) {
+        try { sessionStorage.setItem(CONSENT_OK_KEY, JSON.stringify({ uid, ts: Date.now() })); } catch { /* egal */ }
+    }
+
+    // Fragt beim Server, ob der eingeloggte Nutzer die AKTUELLEN Versionen akzeptiert
+    // hat, und zeigt andernfalls den Dialog. Schlägt die Abfrage fehl (offline, Migration
+    // noch nicht eingespielt), bleibt die Seite benutzbar - der Server protokolliert
+    // ohnehin nur echte Zustimmungen.
+    async function checkLegalConsent(notice) {
+        if (IS_RECOVERY_PAGE || !cache.id) return;
+        if (document.body && document.body.dataset.consentGate === 'off') return;   // Rechtstexte, Impressum, User Area
+        if (consentCheckRunning || document.getElementById('mvConsentModal')) return;
+
+        const uid = cache.id;
+        if (!notice) {
+            try {
+                const ok = JSON.parse(sessionStorage.getItem(CONSENT_OK_KEY) || 'null');
+                if (ok && ok.uid === uid && Date.now() - ok.ts < CONSENT_OK_TTL_MS) return;
+            } catch { /* kein Merker - normal weiterprüfen */ }
+        }
+
+        consentCheckRunning = true;
+        try {
+            const { data, error } = await supabaseClient.rpc('get_my_consent_status');
+            if (error) {
+                console.warn('[MV] Consent-Status nicht verfügbar:', error.message);
+                return;
+            }
+            if (cache.id !== uid) return;   // inzwischen ausgeloggt/gewechselt
+            if (data && data.needs_acceptance) showConsentModal(data, notice);
+            else rememberConsentOk(uid);
+        } catch (err) {
+            console.warn('[MV] Consent-Prüfung fehlgeschlagen:', err && err.message);
+        } finally {
+            consentCheckRunning = false;
+        }
+    }
+
+    function showConsentModal(status, notice) {
+        if (document.getElementById('mvConsentModal')) return;
+        injectModalStyle();
+
+        const docs = {};
+        (status.documents || []).forEach(d => { docs[d.doc_type] = d; });
+        const privacyOpen = !!docs.privacy_policy && !docs.privacy_policy.accepted;
+        const termsOpen   = !!docs.terms_of_service && !docs.terms_of_service.accepted;
+        const needsAge    = !!status.needs_age_confirmation;
+
+        const overlay = document.createElement('div');
+        overlay.className = 'mv-modalOverlay';
+        overlay.id = 'mvConsentModal';
+        overlay.setAttribute('role', 'dialog');
+        overlay.setAttribute('aria-modal', 'true');
+        overlay.setAttribute('aria-labelledby', 'mvConsentTitle');
+
+        const box = document.createElement('div');
+        box.className = 'mv-modalBox mv-consentBox';
+
+        const title = document.createElement('h2');
+        title.className = 'mv-modalTitle';
+        title.id = 'mvConsentTitle';
+        title.textContent = 'Please review our legal documents';
+        box.appendChild(title);
+
+        const text = document.createElement('p');
+        text.className = 'mv-modalText';
+        text.textContent = 'To keep using your account, please confirm the following. ' +
+            'If you do not agree, you can log out and keep using Globomath without an account.';
+        box.appendChild(text);
+
+        if (notice) {
+            const n = document.createElement('p');
+            n.className = 'mv-consentNotice';
+            n.textContent = notice;
+            box.appendChild(n);
+        }
+
+        const boxes = [];
+        function addRow(labelParts, versionText) {
+            const row = document.createElement('label');
+            row.className = 'mv-consentRow';
+            const cb = document.createElement('input');
+            cb.type = 'checkbox';
+            row.appendChild(cb);
+            const span = document.createElement('span');
+            labelParts.forEach(part => {
+                if (typeof part === 'string') span.appendChild(document.createTextNode(part));
+                else {
+                    const a = document.createElement('a');
+                    a.href = part.href;
+                    a.target = '_blank';
+                    a.rel = 'noopener noreferrer';
+                    a.textContent = part.text;
+                    span.appendChild(a);
+                }
+            });
+            if (versionText) span.appendChild(document.createTextNode(` (version ${versionText})`));
+            row.appendChild(span);
+            box.appendChild(row);
+            boxes.push(cb);
+            return cb;
+        }
+
+        let privacyBox = null, termsBox = null;
+        if (privacyOpen) {
+            privacyBox = addRow([
+                needsAge ? 'I confirm that I am 14 years of age or older and I accept the ' : 'I accept the ',
+                { href: `${window.MV_BASE}/html/Privacypolicy.html`, text: 'Privacy policy' }
+            ], docs.privacy_policy.version);
+        }
+        if (termsOpen) {
+            termsBox = addRow([
+                'I accept the ',
+                { href: `${window.MV_BASE}/html/Terms-of-Service.html`, text: 'Terms of Service' }
+            ], docs.terms_of_service.version);
+        }
+
+        const errorEl = document.createElement('p');
+        errorEl.className = 'mv-consentError';
+        errorEl.setAttribute('role', 'alert');
+        errorEl.style.display = 'none';
+        box.appendChild(errorEl);
+
+        const actions = document.createElement('div');
+        actions.className = 'mv-modalActions';
+        const logoutBtn = document.createElement('button');
+        logoutBtn.type = 'button';
+        logoutBtn.className = 'mv-modalBtnSecondary';
+        logoutBtn.textContent = 'Log out';
+        const acceptBtn = document.createElement('button');
+        acceptBtn.type = 'button';
+        acceptBtn.className = 'mv-modalBtnPrimary';
+        acceptBtn.textContent = 'Accept and continue';
+        acceptBtn.disabled = true;
+        actions.append(logoutBtn, acceptBtn);
+        box.appendChild(actions);
+
+        overlay.appendChild(box);
+        document.body.appendChild(overlay);
+
+        const syncButton = () => { acceptBtn.disabled = !boxes.every(cb => cb.checked); };
+        boxes.forEach(cb => cb.addEventListener('change', syncButton));
+        if (boxes[0]) boxes[0].focus();
+
+        function showError(msg) {
+            errorEl.textContent = msg;
+            errorEl.style.display = 'block';
+        }
+
+        logoutBtn.addEventListener('click', async () => {
+            logoutBtn.disabled = true;
+            acceptBtn.disabled = true;
+            await logout();
+            removeConsentModal();
+        });
+
+        acceptBtn.addEventListener('click', async () => {
+            errorEl.style.display = 'none';
+            acceptBtn.disabled = true;
+            logoutBtn.disabled = true;
+            const uid = cache.id;
+
+            let res;
+            try {
+                res = await supabaseClient.rpc('accept_legal_documents', {
+                    p_privacy: !!(privacyBox && privacyBox.checked),
+                    p_terms: !!(termsBox && termsBox.checked),
+                    p_age_confirmed: !!(privacyOpen && needsAge && privacyBox && privacyBox.checked),
+                    // Nur zur Prüfung "diese Version habe ich gesehen" - gespeichert wird
+                    // immer die Serverversion (siehe accept_legal_documents).
+                    p_privacy_version: privacyOpen ? docs.privacy_policy.version : null,
+                    p_terms_version: termsOpen ? docs.terms_of_service.version : null
+                });
+            } catch {
+                logoutBtn.disabled = false;
+                syncButton();
+                showError('Could not reach the server. Please check your connection and try again.');
+                return;
+            }
+
+            if (res.error) {
+                const msg = (res.error.message || '');
+                if (msg.includes('document_version_changed')) {
+                    // Zwischenzeitlich wurde eine neue Version veröffentlicht: Dialog mit den
+                    // neuen Versionen erneut zeigen, statt eine ungesehene Version zu protokollieren.
+                    removeConsentModal();
+                    checkLegalConsent('Our legal documents were updated while this window was open. Please review the new versions.');
+                    return;
+                }
+                logoutBtn.disabled = false;
+                syncButton();
+                showError('Your confirmation could not be saved. Please try again.');
+                return;
+            }
+
+            rememberConsentOk(uid);
+            removeConsentModal();
+        });
+    }
+
+    // Logout (auch in einem anderen Tab) schließt einen offenen Dialog.
+    window.addEventListener('mv:staterestore', () => { if (!isLoggedIn()) removeConsentModal(); });
+
     // Beendet die temporäre Recovery-Session (nur auf der Recovery-Seite erlaubt).
     // scope 'local': widerruft nur DIESE Session, andere Geräte/Tabs bleiben eingeloggt.
     async function endRecoverySession() {
@@ -1158,6 +1436,7 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
         getToolState, setToolState, getAllGuestToolStates,
         getPasswordStrength,
         showLoginPrompt, hideLoginPrompt,
+        getCurrentLegalDocuments, checkLegalConsent,
         getUsername: () => (getCurrentUser()?.username) || 'Guest',
         getEmail: () => (getCurrentUser()?.email) || '',
         isUsernameTaken, isUsernameFormatValid, isUsernameReserved,
