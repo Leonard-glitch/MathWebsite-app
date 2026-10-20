@@ -1,0 +1,78 @@
+/* ==========================================================================
+   HELP PAGE – FAQ entries (<details>, works without JavaScript)
+   Uses the legal-page layout (.legalContainer / .legalCard) from
+   legalStuffPages.css, this file only adds the entry styling.
+   ========================================================================== */
+
+.helpItem {
+    background: var(--bg-input);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    margin-bottom: 0.7rem;
+    transition: border-color var(--transition-speed);
+}
+
+.helpItem:hover,
+.helpItem[open] {
+    border-color: var(--border-glow);
+}
+
+/* Highlights the entry a link points to (e.g. Help.html#delete-account) */
+.helpItem:target {
+    border-color: var(--accent-live);
+}
+
+.helpItem summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.85rem 1.1rem;
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    font-size: 0.95rem;
+    font-weight: 600;
+    line-height: 1.4;
+    list-style: none;
+    cursor: pointer;
+}
+
+.helpItem summary::-webkit-details-marker {
+    display: none;
+}
+
+.helpItem summary::after {
+    content: "+";
+    flex: none;
+    color: var(--accent-live);
+    font-size: 1.2rem;
+    line-height: 1;
+}
+
+.helpItem[open] summary::after {
+    content: "\2212"; /* minus sign */
+}
+
+.helpItem summary:focus-visible {
+    outline: 2px solid var(--border-glow);
+    outline-offset: 2px;
+}
+
+.helpAnswer {
+    padding: 0 1.1rem 0.3rem;
+}
+
+.helpAnswer > :last-child {
+    margin-bottom: 0.8rem;
+}
+
+@media (max-width: 768px) {
+    .helpItem summary {
+        padding: 0.75rem 0.85rem;
+        font-size: 0.9rem;
+    }
+
+    .helpAnswer {
+        padding: 0 0.85rem 0.3rem;
+    }
+}
