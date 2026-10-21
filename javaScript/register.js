@@ -254,44 +254,6 @@ termsCheckbox.addEventListener('change', () => {
     }
 });
 
-// ===========================================================================
-// LEGAL DOCUMENT VERSIONS (nur Anzeige + Prüfung auf veraltete Seite)
-//
-// Die Versionen stammen aus der Datenbank (Tabelle legal_documents) und werden hier
-// nur NEBEN den Checkboxen angezeigt. Sie werden NIE an den Server geschickt:
-// protokolliert wird immer die Version, die der Server im Moment der Registrierung
-// als aktuell führt (Trigger record_signup_consent).
-// ===========================================================================
-
-const privacyVersionEl = document.getElementById('privacyVersion');
-const termsVersionEl   = document.getElementById('termsVersion');
-let shownVersions = null;   // { privacy, terms } so, wie sie dem Nutzer angezeigt wurden
-
-function renderVersionLabels() {
-    if (!shownVersions) return;
-    if (privacyVersionEl) privacyVersionEl.textContent = `(version ${shownVersions.privacy})`;
-    if (termsVersionEl)   termsVersionEl.textContent   = `(version ${shownVersions.terms})`;
-}
-
-// Lädt die aktuellen Versionen. Gibt zurück, welche sich gegenüber der Anzeige
-// geändert haben (Seite war längere Zeit offen, zwischenzeitlich neue Version).
-async function refreshLegalVersions() {
-    const docs = await window.MV.getCurrentLegalDocuments();
-    if (!docs) return { changed: [] };   // nicht erreichbar: Anzeige bleibt wie sie ist, Server entscheidet
-
-    const next = { privacy: docs.privacy_policy.version, terms: docs.terms_of_service.version };
-    const changed = [];
-    if (shownVersions) {
-        if (shownVersions.privacy !== next.privacy) changed.push('privacy');
-        if (shownVersions.terms   !== next.terms)   changed.push('terms');
-    }
-    shownVersions = next;
-    renderVersionLabels();
-    return { changed };
-}
-
-refreshLegalVersions();
-
 let isSubmitting = false;
 
 // SUBMIT HANDLER
@@ -389,17 +351,6 @@ form.addEventListener('submit', async (e) => {
             firstErrorInput.focus();
         }
     } else {
-        // Wurde eine neue Version veröffentlicht, während diese Seite offen war?
-        // Dann nicht still die neue Version protokollieren, sondern neu bestätigen lassen.
-        const { changed } = await refreshLegalVersions();
-        if (changed.length > 0) {
-            const names = [];
-            if (changed.includes('privacy')) { privacyCheckbox.checked = false; names.push('Privacy policy'); }
-            if (changed.includes('terms'))   { termsCheckbox.checked = false;   names.push('Terms of Service'); }
-            showMsg(formError, `Our ${names.join(' and ')} changed while this page was open. Please review ${changed.length > 1 ? 'them' : 'it'} and confirm again.`);
-            return;
-        }
-
         isSubmitting = true;
         const submitBtn = form.querySelector('button[type="submit"]');
         if (submitBtn) {
@@ -413,9 +364,9 @@ form.addEventListener('submit', async (e) => {
             username: uname,
             email: emailInput.value.trim(),
             password: passwordInput.value,
-            // Nur die Checkbox-Werte. Der Server prüft sie erneut und legt Version,
-            // Zeitpunkt und Dokument-Hash selbst fest.
-            consent: { privacy: privacyCheckbox.checked, terms: termsCheckbox.checked },
+            // Nur die Checkbox-Werte. Der Server prüft sie erneut und legt Version und
+            // Zeitpunkt selbst fest. Die erste Checkbox bestätigt Datenschutz UND Alter (14+).
+            consent: { privacy: privacyCheckbox.checked, age: privacyCheckbox.checked, terms: termsCheckbox.checked },
             favoriten: [],
             pinnedGroups: ["favoritenGroupStar"], 
             containerOrders: {},
@@ -458,6 +409,9 @@ form.addEventListener('submit', async (e) => {
         if (result.needsEmailConfirmation) {
             try {
                 sessionStorage.setItem('mv-pending-verify-email', emailInput.value.trim());
+                // Hinweis für verify-email.html: es gab schon eine unbestätigte Registrierung
+                if (result.existingUnconfirmed) sessionStorage.setItem('mv-verify-note', 'existing');
+                else sessionStorage.removeItem('mv-verify-note');
             } catch { /* ignore */ }
             window.location.href = 'verify-email.html';
             return;

@@ -234,13 +234,6 @@ section {
     text-decoration: underline;
 }
 
-.legalVersion {
-    color: var(--text-secondary);
-    opacity: 0.8;
-    font-size: 0.85em;
-    white-space: nowrap;
-}
-
 .accent-error {
     color: var(--accent-error);
 }

@@ -21,6 +21,14 @@ if (pendingEmail) {
     showError("We couldn't find a pending registration in this session. Please register again or log in.");
 }
 
+// Erneute Registrierung mit einer noch unbestätigten E-Mail: Supabase hat nur den Link neu
+// gesendet und Passwort/Username der ersten Registrierung unverändert gelassen.
+try {
+    if (pendingEmail && sessionStorage.getItem('mv-verify-note') === 'existing') {
+        document.getElementById('verifyNote').style.display = '';
+    }
+} catch { /* sessionStorage nicht verfügbar */ }
+
 let cooldownInterval = null;
 
 function startCooldown() {
@@ -61,5 +69,6 @@ resendBtn.addEventListener('click', async () => {
 
 changeEmailBtn.addEventListener('click', () => {
     sessionStorage.removeItem(PENDING_EMAIL_KEY);
+    sessionStorage.removeItem('mv-verify-note');
     window.location.href = 'register.html';
 });

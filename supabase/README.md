@@ -1,67 +1,84 @@
-# Zustimmungs-Protokollierung (Privacy Policy / Terms of Service)
+# Zustimmung zu Privacy Policy, Terms of Service und Alter (14+)
 
-Dieser Ordner wird **nicht** öffentlich ausgeliefert (`.assetsignore`). Er enthält nur die Datenbank-Migration und ein Hilfsskript.
+Dieser Ordner wird **nicht** öffentlich ausgeliefert (`.assetsignore`). Er enthält die Datenbank-Migration.
 
-## Wie es funktioniert (Kurzfassung)
+## Was gespeichert wird
 
-| Baustein | Aufgabe |
+Tabelle `user_consents`, eine Zeile pro Nutzer:
+
+| Spalte | Inhalt |
 |---|---|
-| `legal_documents` | Welche Version ist aktuell? (+ SHA-256 des Textes). Schreiben nur der Betreiber. |
-| `user_consents` | Append-only-Historie: *Nutzer X hat Dokument Y in Version Z am Zeitpunkt T akzeptiert.* Kein Schreibzugriff für Clients. |
-| Trigger `record_signup_consent` auf `auth.users` | Lehnt jede Registrierung ohne `consent_privacy:true` und `consent_terms:true` ab und schreibt die Zustimmung mit **Server**-Version, **Server**-Zeit und **Server**-Hash. Gilt auch für Aufrufe direkt an `/auth/v1/signup`. |
-| RPC `get_my_consent_status` / `accept_legal_documents` | Re-Consent für Bestandsnutzer und neue Versionen. |
-| RPC `publish_legal_document` | Neue Version veröffentlichen (nur Betreiber, nicht für Clients aufrufbar). |
+| `privacy_version`, `privacy_accepted_at` | Version der Privacy Policy und Zeitpunkt der Zustimmung (UTC) |
+| `terms_version`, `terms_accepted_at` | Version der Terms of Service und Zeitpunkt der Zustimmung (UTC) |
+| `age_confirmed_at` | Zeitpunkt der Bestätigung "mindestens 14 Jahre alt" |
+
+Tabelle `consent_history`: Wird automatisch befüllt und enthält jede akzeptierte Version (`privacy`/`terms`, Version, Zeitpunkt), also auch ältere.
+
+Nicht gespeichert: IP-Adresse, User-Agent.
+
+## Wie es abgesichert ist
+
+- Der Browser schickt bei `signUp` nur drei Wahrheitswerte (`consent_privacy`, `consent_age`, `consent_terms`). Ein Datenbank-Trigger auf `auth.users` lehnt die Registrierung ab, wenn eines davon nicht exakt `true` ist. Das gilt auch für Aufrufe, die an der Website vorbei direkt an Supabase gehen.
+- Versionen und Zeitpunkte setzt ausschließlich die Datenbank. Die aktuellen Versionen stehen in der Funktion `current_legal_versions()`; Clients können sie weder lesen noch ändern.
+- Clients haben auf `user_consents` und `consent_history` keinerlei Zugriff (kein Lesen, Schreiben, Löschen). Sie können nur `get_my_consent_status()` und `accept_legal_documents()` aufrufen, und diese wirken nur auf den eigenen Nutzer (aus dem Login, nicht aus einem Parameter).
+- Das spätere Ändern von `user_metadata` (`supabase.auth.updateUser`) hat keinen Einfluss auf das Gespeicherte.
+- Wer im Dashboard als Betreiber (`service_role`/`postgres`) arbeitet, kann Zeilen ändern. Das ist bewusst nicht gesperrt.
+
+## Wichtig: erneute Registrierung mit unbestätigter E-Mail
+
+Registriert sich jemand mit einer E-Mail erneut, deren Konto noch **nicht bestätigt** ist, legt Supabase **keinen neuen Nutzer** an und ändert **weder Username noch Passwort noch Zustimmung**. Es wird nur der Bestätigungslink erneut gesendet. Es gelten also Username, Passwort und Zustimmung der **ersten** Registrierung.
+
+- Die Zustimmung wird deshalb nur beim Anlegen des Nutzers (Trigger) gespeichert, nie über einen zweiten `signUp`-Versuch.
+- Wurde zwischen erster und zweiter Registrierung eine neue Version veröffentlicht, ist beim ersten Login die gespeicherte Version veraltet. Der Nutzer wird dann wie bei jeder neuen Version um Zustimmung gebeten.
+- Die Seite `verify-email.html` zeigt in diesem Fall einen Hinweis (best effort, siehe `registerUser()`).
 
 ## Einspielen (Reihenfolge wichtig)
 
-1. **Zuerst das Frontend deployen** (`register.js`, `common-login.js`, Rechtstexte). Das Frontend funktioniert auch ohne Migration (der Re-Consent-Dialog bleibt dann einfach aus).
-2. **Dann** den Inhalt von `migrations/20261018120000_legal_consent_tracking.sql` im Supabase-Dashboard unter *SQL Editor* ausführen.
-   - Ab diesem Moment scheitert jede Registrierung ohne Zustimmungs-Flags. Ein Browser, der noch das alte `common-login.js` aus dem Cache hat, kann sich deshalb kurz nicht registrieren, bis der Cache erneuert ist.
+1. **Zuerst das Frontend deployen** (Branch mergen). Es funktioniert auch ohne Migration, der Dialog für neue Versionen bleibt dann einfach aus.
+2. **Dann** den Inhalt von `migrations/20261019120000_legal_consent.sql` im Supabase-Dashboard unter *SQL Editor* ausführen.
+   - Ab diesem Moment scheitert jede Registrierung ohne die drei Flags. Ein Browser mit altem, noch gecachtem JavaScript kann sich kurz nicht registrieren.
+   - Die Migration räumt die erste, komplexere Variante (`legal_documents`, Mehrzeilen-`user_consents`) auf, falls sie schon eingespielt wurde, und lässt vorhandene Daten der neuen Variante bei erneutem Ausführen stehen.
 3. Kontrolle:
    ```sql
-   select * from public.legal_documents;
+   select * from public.current_legal_versions();
    select tgname from pg_trigger where tgrelid = 'auth.users'::regclass and not tgisinternal;
    ```
-   Erwartet: zwei Zeilen `1.0` (beide `is_current`) und ein neuer Trigger `on_auth_user_created_record_consent` neben dem bestehenden `handle_new_user`-Trigger.
+   Erwartet: `1.0 | 1.0` und der neue Trigger `on_auth_user_created_record_consent` neben dem bestehenden `handle_new_user`-Trigger.
 4. Test: neuen Account registrieren, dann
    ```sql
-   select doc_type, doc_version, accepted_at at time zone 'UTC' as accepted_utc, source, age_confirmed
-   from public.user_consents order by accepted_at desc limit 4;
+   select * from public.user_consents order by privacy_accepted_at desc limit 3;
    ```
 
-## Vor dem Livegang (einmalig)
+**Bestehende Nutzer** (z. B. Test-Accounts) haben noch keine Zustimmung gespeichert und bestätigen sie beim nächsten Login in einem Dialog.
 
-- Rechtstexte finalisieren (DRAFT-Hinweis und alle `[CONFIRM]`-Marker entfernen).
-- `git tag privacy-v1.0` und `git tag terms-v1.0` setzen.
-- `node supabase/tools/legal-hash.mjs` ausführen und die ausgegebenen `update ...`-Statements im SQL Editor ausführen. Ein einmal gesetzter Hash kann nicht mehr geändert werden.
-- Test-Accounts, die vor diesem Schritt entstanden sind, haben `document_sha256 = NULL` – für echte Nutzer irrelevant.
+## Neue Version eines Dokuments
 
-## Neue Version eines Dokuments veröffentlichen
-
-1. Text ändern, "Version x.y" und Datum im Text anheben, committen, taggen.
-2. `node supabase/tools/legal-hash.mjs` → SQL `select public.publish_legal_document('<doc_type>', '<x.y>', '<sha256>');` im SQL Editor ausführen.
-3. Ab sofort: neue Registrierungen bekommen automatisch die neue Version; eingeloggte Bestandsnutzer sehen beim nächsten Laden (spätestens nach ca. 15 Min.) den Bestätigungs-Dialog. Bei einer neuen Privacy Policy wird die 14+-Bestätigung nicht erneut verlangt, wenn sie schon vorliegt.
+1. Text ändern, "Version x.y" und Datum im Text anheben.
+2. Neue Migration anlegen, die `public.current_legal_versions()` ersetzt, z. B. Terms 1.1:
+   ```sql
+   create or replace function public.current_legal_versions()
+   returns table (privacy_version text, terms_version text)
+   language sql stable set search_path = ''
+   as $$ select '1.0'::text, '1.1'::text $$;
+   ```
+3. Frontend und Migration ausspielen. Eingeloggte Nutzer sehen beim nächsten Seitenaufruf (spätestens nach ca. 15 Minuten) den Bestätigungs-Dialog für das geänderte Dokument. Die 14+-Bestätigung wird nicht erneut verlangt. Die bisherige Zustimmung bleibt in `consent_history`.
 
 ## Nachweis im Streitfall
 
 ```sql
-select u.email,
-       u.created_at         at time zone 'UTC' as registered_utc,
-       u.email_confirmed_at at time zone 'UTC' as email_confirmed_utc,
-       c.doc_type, c.doc_version,
-       c.accepted_at        at time zone 'UTC' as accepted_utc,
-       c.document_sha256, c.source, c.age_confirmed
-from auth.users u
-join public.user_consents c on c.user_id = u.id
-where u.email = 'nutzer@example.com'
-order by c.accepted_at;
-```
+select u.email, u.email_confirmed_at at time zone 'UTC' as email_confirmed_utc,
+       c.privacy_version, c.privacy_accepted_at at time zone 'UTC' as privacy_utc,
+       c.terms_version,   c.terms_accepted_at   at time zone 'UTC' as terms_utc,
+       c.age_confirmed_at at time zone 'UTC' as age_utc
+from auth.users u join public.user_consents c on c.user_id = u.id
+where u.email = 'nutzer@example.com';
 
-Beweiskette: Zeitpunkt + Version (Server) → Hash und Git-Tag (exakter Wortlaut) → bestätigte E-Mail-Adresse (Double-Opt-in).
+select * from public.consent_history where user_id = '<uuid>' order by accepted_at;
+```
 
 ## Hinweise
 
-- **Nutzer manuell anlegen** (Dashboard "Add user" oder Admin-API) scheitert absichtlich, weil keine Zustimmung vorliegt. Über die Admin-API `createUser` mit `user_metadata: { consent_privacy: true, consent_terms: true }` nur anlegen, wenn die Person tatsächlich zugestimmt hat.
+- **Nutzer manuell anlegen** (Dashboard "Add user" oder Admin-API) scheitert absichtlich, weil keine Zustimmung vorliegt. Über die Admin-API `createUser` nur mit `user_metadata: { consent_privacy: true, consent_age: true, consent_terms: true }` anlegen, wenn die Person tatsächlich zugestimmt hat.
 - **Andere Login-Arten** (Google, Apple, …): Der Trigger erwartet die Flags bei *jeder* Registrierung. Beim Hinzufügen eines OAuth-Logins muss der Registrierungsweg angepasst werden.
-- **Konto löschen** entfernt auch die Zustimmungs-Datensätze (Cascade) – so steht es in der Privacy Policy. Sollen sie zur Rechtsverteidigung länger bleiben, muss das in der Privacy Policy stehen und der Fremdschlüssel angepasst werden (rechtliche Prüfung).
+- **Konto löschen** entfernt auch `user_consents` und `consent_history` (Cascade), so steht es in der Privacy Policy.
 - **Rollback**: siehe Kommentar am Ende der Migration.

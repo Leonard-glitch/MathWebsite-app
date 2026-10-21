@@ -77,7 +77,6 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
     // liegt ausschließlich in der Datenbank).
     const CONSENT_OK_KEY = 'mv-consent-ok';
     const CONSENT_OK_TTL_MS = 15 * 60 * 1000;
-    const LEGAL_DOC_TYPES = ['privacy_policy', 'terms_of_service'];
 
     let cache = { id: null, email: null, profile: null, toolHistory: {} };
 
@@ -202,6 +201,7 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
             sessionStorage.removeItem('mv-return-url');
             sessionStorage.removeItem('mv-pending-verify-email');
             sessionStorage.removeItem(CONSENT_OK_KEY);
+            sessionStorage.removeItem('mv-verify-note');
             sessionStorage.removeItem('mv-login-fails');
             sessionStorage.removeItem('mv-login-lock-until');
         } catch { /* Storage nicht verfügbar */ }
@@ -481,7 +481,7 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
     // ==========================================================================
 
     async function registerUser(userData) {
-        // consent = { privacy: boolean, terms: boolean } - die gesetzten Checkboxen.
+        // consent = { privacy, age, terms } (Booleans) - die gesetzten Checkboxen.
         // Wird bewusst aus `rest` herausgenommen, damit es nicht in der
         // Pending-Registration im localStorage / im Profil landet.
         const { username, email, password, consent, ...rest } = userData;
@@ -489,7 +489,7 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
         // Frühe Ablehnung (UX). Die eigentliche Durchsetzung passiert serverseitig
         // (Trigger record_signup_consent auf auth.users): ein Aufruf von
         // /auth/v1/signup an dieser Funktion vorbei scheitert dort ebenfalls.
-        if (!consent || consent.privacy !== true || consent.terms !== true) {
+        if (!consent || consent.privacy !== true || consent.age !== true || consent.terms !== true) {
             return { success: false, reason: 'consent_required' };
         }
 
@@ -500,9 +500,9 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
                 email, password,
                 options: {
                     // username: handle_new_user() liest ihn von hier.
-                    // consent_*: NUR Wahrheitswerte. Versionen, Zeitpunkt und
-                    // Dokument-Hash vergibt der Server (Tabelle user_consents).
-                    data: { username, consent_privacy: true, consent_terms: true },
+                    // consent_*: NUR Wahrheitswerte. Version und Zeitpunkt der
+                    // Zustimmung vergibt der Server (Tabelle user_consents).
+                    data: { username, consent_privacy: true, consent_age: true, consent_terms: true },
                     emailRedirectTo: window.MV_URL('index.html')
                 }
             }));
@@ -540,7 +540,16 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
             } catch { /* Storage voll o.ä. – nicht blockierend */ }
         }
 
-        return { success: true, needsEmailConfirmation: true };
+        // Gab es für diese E-Mail schon eine UNBESTÄTIGTE Registrierung? Dann legt Supabase keinen
+        // neuen Nutzer an und ändert weder Passwort noch Metadaten (Username, Zustimmung) - es
+        // schickt nur den Link erneut. Erkennbar daran, dass der Link gerade neu gesendet wurde,
+        // der Nutzer aber deutlich älter ist (beide Zeitstempel kommen vom Server, daher unabhängig
+        // von der Uhr des Browsers). Nur ein Hinweis für verify-email.html; kein Fehlerfall.
+        const createdMs = Date.parse((data.user && data.user.created_at) || '');
+        const sentMs = Date.parse((data.user && data.user.confirmation_sent_at) || '');
+        const existingUnconfirmed = !isExistingConfirmedEmail && !!createdMs && !!sentMs && (sentMs - createdMs > 30000);
+
+        return { success: true, needsEmailConfirmation: true, existingUnconfirmed };
     }
 
     async function resendConfirmationEmail(email) {
@@ -1123,9 +1132,7 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
                 margin-top: 3px; flex-shrink: 0; cursor: pointer; }
             .mv-consentRow a { color: var(--border-glow); font-weight: 600; text-decoration: none; }
             .mv-consentRow a:hover { text-decoration: underline; }
-            .mv-consentNotice, .mv-consentError { font-size: 0.78rem; line-height: 1.5; margin: 0 0 1rem; text-align: left; }
-            .mv-consentNotice { color: var(--text-secondary); }
-            .mv-consentError { color: var(--accent-error); }
+            .mv-consentError { font-size: 0.78rem; line-height: 1.5; margin: 0 0 1rem; text-align: left; color: var(--accent-error); }
             .mv-modalActions button[disabled] { opacity: 0.5; cursor: not-allowed; box-shadow: none; }
         `;
         document.head.appendChild(style);
@@ -1169,31 +1176,13 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
     }
 
     // ==========================================================================
-    // RECHTSTEXTE: aktuelle Versionen + Re-Consent
+    // RECHTSTEXTE: Zustimmung zu neuen Versionen (Re-Consent)
     //
-    // Die Zustimmung wird AUSSCHLIESSLICH serverseitig protokolliert:
+    // Die Zustimmung wird AUSSCHLIESSLICH serverseitig gespeichert:
     //   - Registrierung: Trigger record_signup_consent() auf auth.users
     //   - Bestandsnutzer / neue Versionen: RPC accept_legal_documents()
-    // Der Client liefert nur Checkbox-Werte. Versionen, Zeitpunkt und Dokument-Hash
-    // vergibt der Server. Die hier gelesenen Versionen dienen nur der Anzeige und
-    // einer Prüfung "habe ich die aktuelle Version gesehen?" - nie als Quelle.
+    // Der Client liefert nur Checkbox-Werte. Versionen und Zeitpunkt vergibt der Server.
     // ==========================================================================
-
-    // Aktuelle Versionen (öffentlich lesbar, auch für Gäste). null bei Fehler.
-    async function getCurrentLegalDocuments() {
-        try {
-            const { data, error } = await supabaseClient
-                .from('legal_documents')
-                .select('doc_type, version, effective_at')
-                .eq('is_current', true);
-            if (error || !Array.isArray(data)) return null;
-            const out = {};
-            data.forEach(row => { out[row.doc_type] = { version: row.version, effectiveAt: row.effective_at }; });
-            return LEGAL_DOC_TYPES.every(t => out[t]) ? out : null;
-        } catch {
-            return null;
-        }
-    }
 
     let consentCheckRunning = false;
 
@@ -1210,18 +1199,16 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
     // hat, und zeigt andernfalls den Dialog. Schlägt die Abfrage fehl (offline, Migration
     // noch nicht eingespielt), bleibt die Seite benutzbar - der Server protokolliert
     // ohnehin nur echte Zustimmungen.
-    async function checkLegalConsent(notice) {
+    async function checkLegalConsent() {
         if (IS_RECOVERY_PAGE || !cache.id) return;
         if (document.body && document.body.dataset.consentGate === 'off') return;   // Rechtstexte, Impressum, User Area
         if (consentCheckRunning || document.getElementById('mvConsentModal')) return;
 
         const uid = cache.id;
-        if (!notice) {
-            try {
-                const ok = JSON.parse(sessionStorage.getItem(CONSENT_OK_KEY) || 'null');
-                if (ok && ok.uid === uid && Date.now() - ok.ts < CONSENT_OK_TTL_MS) return;
-            } catch { /* kein Merker - normal weiterprüfen */ }
-        }
+        try {
+            const ok = JSON.parse(sessionStorage.getItem(CONSENT_OK_KEY) || 'null');
+            if (ok && ok.uid === uid && Date.now() - ok.ts < CONSENT_OK_TTL_MS) return;
+        } catch { /* kein Merker - normal weiterprüfen */ }
 
         consentCheckRunning = true;
         try {
@@ -1231,7 +1218,7 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
                 return;
             }
             if (cache.id !== uid) return;   // inzwischen ausgeloggt/gewechselt
-            if (data && data.needs_acceptance) showConsentModal(data, notice);
+            if (data && data.needs_acceptance) showConsentModal(data);
             else rememberConsentOk(uid);
         } catch (err) {
             console.warn('[MV] Consent-Prüfung fehlgeschlagen:', err && err.message);
@@ -1240,7 +1227,7 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
         }
     }
 
-    function showConsentModal(status, notice) {
+    function showConsentModal(status) {
         if (document.getElementById('mvConsentModal')) return;
         injectModalStyle();
 
@@ -1271,13 +1258,6 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
         text.textContent = 'To keep using your account, please confirm the following. ' +
             'If you do not agree, you can log out and keep using Globomath without an account.';
         box.appendChild(text);
-
-        if (notice) {
-            const n = document.createElement('p');
-            n.className = 'mv-consentNotice';
-            n.textContent = notice;
-            box.appendChild(n);
-        }
 
         const boxes = [];
         function addRow(labelParts, versionText) {
@@ -1369,11 +1349,7 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
                 res = await supabaseClient.rpc('accept_legal_documents', {
                     p_privacy: !!(privacyBox && privacyBox.checked),
                     p_terms: !!(termsBox && termsBox.checked),
-                    p_age_confirmed: !!(privacyOpen && needsAge && privacyBox && privacyBox.checked),
-                    // Nur zur Prüfung "diese Version habe ich gesehen" - gespeichert wird
-                    // immer die Serverversion (siehe accept_legal_documents).
-                    p_privacy_version: privacyOpen ? docs.privacy_policy.version : null,
-                    p_terms_version: termsOpen ? docs.terms_of_service.version : null
+                    p_age: !!(needsAge && privacyBox && privacyBox.checked)
                 });
             } catch {
                 logoutBtn.disabled = false;
@@ -1383,14 +1359,6 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
             }
 
             if (res.error) {
-                const msg = (res.error.message || '');
-                if (msg.includes('document_version_changed')) {
-                    // Zwischenzeitlich wurde eine neue Version veröffentlicht: Dialog mit den
-                    // neuen Versionen erneut zeigen, statt eine ungesehene Version zu protokollieren.
-                    removeConsentModal();
-                    checkLegalConsent('Our legal documents were updated while this window was open. Please review the new versions.');
-                    return;
-                }
                 logoutBtn.disabled = false;
                 syncButton();
                 showError('Your confirmation could not be saved. Please try again.');
@@ -1436,7 +1404,7 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
         getToolState, setToolState, getAllGuestToolStates,
         getPasswordStrength,
         showLoginPrompt, hideLoginPrompt,
-        getCurrentLegalDocuments, checkLegalConsent,
+        checkLegalConsent,
         getUsername: () => (getCurrentUser()?.username) || 'Guest',
         getEmail: () => (getCurrentUser()?.email) || '',
         isUsernameTaken, isUsernameFormatValid, isUsernameReserved,
