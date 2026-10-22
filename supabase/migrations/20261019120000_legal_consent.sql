@@ -275,6 +275,10 @@ $$;
 revoke all on function public.accept_legal_documents(boolean, boolean, boolean) from public, anon;
 grant execute on function public.accept_legal_documents(boolean, boolean, boolean) to authenticated;
 
+-- Zusätzliche Absicherung: PostgREST soll die neuen Funktionen sofort kennen (Supabase lädt den
+-- Schema-Cache nach DDL meist selbst nach). Die Benachrichtigung wird beim commit zugestellt.
+notify pgrst, 'reload schema';
+
 commit;
 
 -- =============================================================================
@@ -300,4 +304,5 @@ commit;
 --   drop table if exists public.user_consents;
 --   drop function if exists public.log_consent_history();
 --   drop function if exists public.current_legal_versions();
+--   notify pgrst, 'reload schema';
 -- =============================================================================
