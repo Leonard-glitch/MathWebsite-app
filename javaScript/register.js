@@ -393,6 +393,14 @@ form.addEventListener('submit', async (e) => {
                 } else if (reason.includes('already registered') || reason.includes('already exists')) {
                     setError(emailInput);
                     showMsg(emailError, 'An account already exists for this email address.');
+                                } else if (result.status === 429 || /rate_limit/.test(result.code || '')) {
+                    showMsg(formError, 'Too many attempts. Please wait a few minutes and try again.');
+                } else if (result.code === 'email_address_invalid') {
+                    setError(emailInput);
+                    showMsg(emailError, 'This email address cannot be used. Please check it or use another one.');
+                } else if (result.code === 'weak_password') {
+                    setError(passwordInput);
+                    showMsg(formError, 'This password is too weak. Please choose a longer, less common one.');
                 } else {
                     showMsg(formError, 'Registration failed. Please try again.');
                 }

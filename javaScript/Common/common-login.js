@@ -49,6 +49,30 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
         return fetch(input, opts);
     }
 
+    // ==========================================================================
+    // HINWEISE AUS E-MAIL-LINKS (abgelaufen, bereits benutzt, ...) – Teil 1
+    // Supabase hängt bei solchen Links Parameter an die redirectTo-URL:
+    // Implicit Flow im Hash (#error=access_denied&error_code=otp_expired&...),
+    // PKCE als Query (?error=...). Sie werden VOR createClient() gesichert,
+    // weil supabase-js die URL beim Start selbst verarbeitet.
+    // ==========================================================================
+    const AUTH_REDIRECT_KEYS = ['error', 'error_code', 'error_description', 'message'];
+
+    const authRedirect = (function () {
+        try {
+            const h = new URLSearchParams(location.hash.replace(/^#/, ''));
+            const s = new URLSearchParams(location.search);
+            const get = k => h.get(k) || s.get(k) || '';
+            const p = {
+                error: get('error'),
+                code: get('error_code'),
+                description: get('error_description'),
+                message: get('message')
+            };
+            return (p.error || p.code || p.description || p.message) ? p : null;
+        } catch { return null; }
+    })();
+
     // Recovery-Seite: Session nur im Speicher dieses Tabs, nie im localStorage/Mirror.
     const IS_RECOVERY_PAGE = !!document.body && document.body.dataset.auth === 'recovery';
 
@@ -489,7 +513,7 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
             return { success: false, reason: 'network_error' };
         }
 
-        if (error) { skipNextAuthEvent = false; return { success: false, reason: error.message }; }
+        if (error) { skipNextAuthEvent = false; return { success: false, reason: error.message, code: error.code, status: error.status }; }
 
         if (data.session) {
             // E-Mail-Bestätigung deaktiviert bzw. sofortige Session vorhanden:
@@ -1127,6 +1151,136 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
         overlay.style.display = 'flex';
     }
 
+    // ==========================================================================
+    // HINWEISE AUS E-MAIL-LINKS – Teil 2: Einordnung + Anzeige
+    // error_description kann von jedem per Link gesetzt werden. Deshalb wird
+    // NIE Text aus der URL angezeigt (Texteinschleusung/Phishing), sondern nur
+    // diese festen Meldungen. Die URL-Texte dienen nur zur Einordnung.
+    // ==========================================================================
+    const AUTH_NOTICES = {
+        link_expired: {
+            title: 'Link expired or already used',
+            text: 'This email link is no longer valid. Links work only once and only for a limited time. Some email programs open links automatically, which uses them up. Please request a new link.',
+            help: 'confirmation-email'
+        },
+        link_invalid: {
+            title: 'Link not valid',
+            text: 'This email link could not be verified. Please request a new link.',
+            help: 'confirmation-email'
+        },
+        server: {
+            title: 'Something went wrong',
+            text: 'The email service had a problem. Please try again in a few minutes.',
+            help: 'confirmation-email'
+        },
+        generic: {
+            title: 'Link could not be processed',
+            text: 'Something went wrong with this email link. Please request a new link.',
+            help: 'confirmation-email'
+        },
+        email_change_step: {
+            title: 'Almost done',
+            text: 'Your confirmation was received. To finish changing your email address, please also click the link in the email sent to your other address.',
+            help: 'change-account-data'
+        }
+    };
+
+    function classifyAuthRedirect(p) {
+        if (!p) return null;
+        const err  = (p.error || '').toLowerCase();
+        const code = (p.code || '').toLowerCase();
+        const desc = (p.description || '').toLowerCase();
+
+        if (err || code || desc) {
+            if (code === 'otp_expired' || /expired|already (been )?used/.test(desc)) return 'link_expired';
+            if (err === 'server_error' || code === 'server_error' || code === 'unexpected_failure') return 'server';
+            if (err === 'access_denied' || code === 'access_denied') return 'link_invalid';
+            if (code || desc) return 'generic';
+            return null;
+        }
+        // Secure Email Change: nach dem ersten der zwei Links kommt eine Info statt eines Fehlers.
+        if (/confirmation link accepted/i.test(p.message || '')) return 'email_change_step';
+        return null;
+    }
+
+    function stripAuthRedirectParams() {
+        try {
+            const h = new URLSearchParams(location.hash.replace(/^#/, ''));
+            const s = new URLSearchParams(location.search);
+            let hashChanged = false, searchChanged = false;
+            AUTH_REDIRECT_KEYS.forEach(k => {
+                if (h.has(k)) { h.delete(k); hashChanged = true; }
+                if (s.has(k)) { s.delete(k); searchChanged = true; }
+            });
+            // Nur anfassen, was wirklich Fehlerparameter enthielt (z.B. bleibt "#top" unverändert).
+            const hash   = hashChanged   ? (h.toString() ? '#' + h.toString() : '') : location.hash;
+            const search = searchChanged ? (s.toString() ? '?' + s.toString() : '') : location.search;
+            history.replaceState(null, '', location.pathname + search + hash);
+        } catch { /* URL bleibt eben stehen */ }
+    }
+
+    function showAuthNotice(key) {
+        const n = AUTH_NOTICES[key] || AUTH_NOTICES.generic;
+        injectModal();   // sorgt dafür, dass die .mv-modal*-Styles existieren
+        const old = document.getElementById('mvAuthNoticeModal');
+        if (old) old.remove();
+
+        const overlay = document.createElement('div');
+        overlay.className = 'mv-modalOverlay';
+        overlay.id = 'mvAuthNoticeModal';
+        overlay.setAttribute('role', 'dialog');
+        overlay.setAttribute('aria-modal', 'true');
+
+        const box = document.createElement('div');
+        box.className = 'mv-modalBox';
+
+        const title = document.createElement('h2');
+        title.className = 'mv-modalTitle';
+        title.textContent = n.title;
+
+        const text = document.createElement('p');
+        text.className = 'mv-modalText';
+        text.textContent = n.text;
+
+        const actions = document.createElement('div');
+        actions.className = 'mv-modalActions';
+
+        const closeBtn = document.createElement('button');
+        closeBtn.type = 'button';
+        closeBtn.className = 'mv-modalBtnSecondary';
+        closeBtn.textContent = 'Close';
+
+        const helpLink = document.createElement('a');
+        helpLink.className = 'mv-modalBtnPrimary';
+        helpLink.href = `${window.MV_BASE}/html/help.html#${n.help}`;
+        helpLink.textContent = 'Open help';
+
+        actions.append(closeBtn, helpLink);
+        box.append(title, text, actions);
+        overlay.appendChild(box);
+        document.body.appendChild(overlay);
+
+        function close() {
+            overlay.remove();
+            document.removeEventListener('keydown', onKey);
+        }
+        function onKey(e) { if (e.key === 'Escape') close(); }
+
+        closeBtn.addEventListener('click', close);
+        overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+        document.addEventListener('keydown', onKey);
+        closeBtn.focus();
+    }
+
+    function handleAuthRedirectParams() {
+        // reset-password.html zeigt für abgelaufene Links bereits seine eigene "invalid"-Box.
+        if (IS_RECOVERY_PAGE) return;
+        const key = classifyAuthRedirect(authRedirect);
+        if (!key) return;
+        stripAuthRedirectParams();
+        showAuthNotice(key);
+    }
+
     // Beendet die temporäre Recovery-Session (nur auf der Recovery-Seite erlaubt).
     // scope 'local': widerruft nur DIESE Session, andere Geräte/Tabs bleiben eingeloggt.
     async function endRecoverySession() {
@@ -1261,6 +1415,7 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
     }
 
     initNavBurger();
+    handleAuthRedirectParams();
 
     const _mvPath = window.location.pathname;
     if (!_mvPath.includes('login') && !_mvPath.includes('register') &&
