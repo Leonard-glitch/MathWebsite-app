@@ -49,6 +49,30 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
         return fetch(input, opts);
     }
 
+    // ==========================================================================
+    // HINWEISE AUS E-MAIL-LINKS (abgelaufen, bereits benutzt, ...) – Teil 1
+    // Supabase hängt bei solchen Links Parameter an die redirectTo-URL:
+    // Implicit Flow im Hash (#error=access_denied&error_code=otp_expired&...),
+    // PKCE als Query (?error=...). Sie werden VOR createClient() gesichert,
+    // weil supabase-js die URL beim Start selbst verarbeitet.
+    // ==========================================================================
+    const AUTH_REDIRECT_KEYS = ['error', 'error_code', 'error_description', 'message'];
+
+    const authRedirect = (function () {
+        try {
+            const h = new URLSearchParams(location.hash.replace(/^#/, ''));
+            const s = new URLSearchParams(location.search);
+            const get = k => h.get(k) || s.get(k) || '';
+            const p = {
+                error: get('error'),
+                code: get('error_code'),
+                description: get('error_description'),
+                message: get('message')
+            };
+            return (p.error || p.code || p.description || p.message) ? p : null;
+        } catch { return null; }
+    })();
+
     // Recovery-Seite: Session nur im Speicher dieses Tabs, nie im localStorage/Mirror.
     const IS_RECOVERY_PAGE = !!document.body && document.body.dataset.auth === 'recovery';
 
@@ -511,7 +535,7 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
             return { success: false, reason: 'network_error' };
         }
 
-        if (error) { skipNextAuthEvent = false; return { success: false, reason: error.message }; }
+        if (error) { skipNextAuthEvent = false; return { success: false, reason: error.message, code: error.code, status: error.status }; }
 
         if (data.session) {
             // E-Mail-Bestätigung deaktiviert bzw. sofortige Session vorhanden:
@@ -1508,6 +1532,7 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
     }
 
     initNavBurger();
+    handleAuthRedirectParams();
 
     const _mvPath = window.location.pathname;
     if (!_mvPath.includes('login') && !_mvPath.includes('register') &&
