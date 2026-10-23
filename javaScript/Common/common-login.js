@@ -50,11 +50,14 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
     }
 
     // ==========================================================================
-    // HINWEISE AUS E-MAIL-LINKS (abgelaufen, bereits benutzt, ...) – Teil 1
-    // Supabase hängt bei solchen Links Parameter an die redirectTo-URL:
-    // Implicit Flow im Hash (#error=access_denied&error_code=otp_expired&...),
-    // PKCE als Query (?error=...). Sie werden VOR createClient() gesichert,
-    // weil supabase-js die URL beim Start selbst verarbeitet.
+    // HINWEISE AUS E-MAIL-LINKS (abgelaufen, bereits benutzt, bestätigt, ...) – Teil 1
+    // Supabase hängt an die redirectTo-URL Parameter an:
+    //  - Fehler:   #error=access_denied&error_code=otp_expired&...  (PKCE: ?error=...)
+    //  - Info:     #message=Confirmation link accepted...  (Secure Email Change, 1. Link)
+    //  - Erfolg:   #access_token=...&type=signup | email_change
+    // Sie werden VOR createClient() gesichert, weil supabase-js die URL beim
+    // Start selbst verarbeitet (und bei Erfolg den Hash entfernt).
+    // Der access_token wird hier nur auf Vorhandensein geprüft, nie gespeichert.
     // ==========================================================================
     const AUTH_REDIRECT_KEYS = ['error', 'error_code', 'error_description', 'message'];
 
@@ -67,9 +70,11 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
                 error: get('error'),
                 code: get('error_code'),
                 description: get('error_description'),
-                message: get('message')
+                message: get('message'),
+                type: get('type'),
+                hasToken: !!get('access_token')
             };
-            return (p.error || p.code || p.description || p.message) ? p : null;
+            return (p.error || p.code || p.description || p.message || (p.hasToken && p.type)) ? p : null;
         } catch { return null; }
     })();
 
@@ -1199,11 +1204,13 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
         overlay.style.display = 'flex';
     }
 
-    // ==========================================================================
+        // ==========================================================================
     // HINWEISE AUS E-MAIL-LINKS – Teil 2: Einordnung + Anzeige
     // error_description kann von jedem per Link gesetzt werden. Deshalb wird
     // NIE Text aus der URL angezeigt (Texteinschleusung/Phishing), sondern nur
     // diese festen Meldungen. Die URL-Texte dienen nur zur Einordnung.
+    //  - Fehler  -> Modal (braucht Erklärung + Link zur Hilfe, bleibt stehen)
+    //  - Erfolg / Info -> kleiner Toast oben (verschwindet von selbst)
     // ==========================================================================
     const AUTH_NOTICES = {
         link_expired: {
@@ -1225,11 +1232,27 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
             title: 'Link could not be processed',
             text: 'Something went wrong with this email link. Please request a new link.',
             help: 'confirmation-email'
+        }
+    };
+
+    const AUTH_TOASTS = {
+        signup_confirmed: {
+            kind: 'success',
+            title: 'Email confirmed',
+            text: 'Your email address is confirmed and you are logged in. Welcome to Globomath!',
+            duration: 7000
+        },
+        email_changed: {
+            kind: 'success',
+            title: 'Email address changed',
+            text: 'Your new email address is now active.',
+            duration: 7000
         },
         email_change_step: {
+            kind: 'info',
             title: 'Almost done',
             text: 'Your confirmation was received. To finish changing your email address, please also click the link in the email sent to your other address.',
-            help: 'change-account-data'
+            duration: 12000
         }
     };
 
@@ -1248,6 +1271,9 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
         }
         // Secure Email Change: nach dem ersten der zwei Links kommt eine Info statt eines Fehlers.
         if (/confirmation link accepted/i.test(p.message || '')) return 'email_change_step';
+        // Erfolg: Link wurde eingelöst, Session kommt per Token (recovery gehört zu reset-password.html).
+        if (p.hasToken && p.type === 'signup') return 'signup_confirmed';
+        if (p.hasToken && p.type === 'email_change') return 'email_changed';
         return null;
     }
 
@@ -1320,13 +1346,93 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
         closeBtn.focus();
     }
 
+    function injectToastStyle() {
+        if (document.getElementById('mvToastStyle')) return;
+        const style = document.createElement('style');
+        style.id = 'mvToastStyle';
+        style.textContent = `
+            .mv-toast { position: fixed; top: 1rem; left: 50%; transform: translateX(-50%);
+                z-index: 9998; display: flex; align-items: flex-start; gap: 0.75rem;
+                width: min(92vw, 28rem); padding: 0.8rem 1rem; box-sizing: border-box;
+                background: var(--bg-surface); color: var(--text-primary);
+                border: 1px solid var(--border-glow); border-radius: var(--radius-md);
+                box-shadow: 0 0 24px var(--glow-soft), var(--shadow-main);
+                font-family: var(--font-main); animation: mvToastIn 0.25s ease; }
+            .mv-toast--success { border-color: var(--accent-live);
+                box-shadow: 0 0 24px var(--glow-live), var(--shadow-main); }
+            .mv-toastBody { flex: 1; min-width: 0; }
+            .mv-toastTitle { font-size: 0.85rem; font-weight: 800; margin-bottom: 0.15rem; }
+            .mv-toastText { font-size: 0.75rem; line-height: 1.5; color: var(--text-secondary); }
+            .mv-toastClose { background: none; border: none; padding: 0 0.2rem; cursor: pointer;
+                color: var(--text-muted); font-size: 1.1rem; line-height: 1; }
+            .mv-toastClose:hover { color: var(--text-primary); }
+            @keyframes mvToastIn { from { opacity: 0; transform: translate(-50%, -10px); }
+                                   to   { opacity: 1; transform: translate(-50%, 0); } }
+            @media (prefers-reduced-motion: reduce) { .mv-toast { animation: none; } }
+        `;
+        document.head.appendChild(style);
+    }
+
+    function showAuthToast(key) {
+        const n = AUTH_TOASTS[key];
+        if (!n) return;
+        injectToastStyle();
+        const old = document.getElementById('mvAuthToast');
+        if (old) old.remove();
+
+        const toast = document.createElement('div');
+        toast.id = 'mvAuthToast';
+        toast.className = 'mv-toast' + (n.kind === 'success' ? ' mv-toast--success' : '');
+        toast.setAttribute('role', 'status');
+        toast.setAttribute('aria-live', 'polite');
+
+        const body = document.createElement('div');
+        body.className = 'mv-toastBody';
+
+        const title = document.createElement('div');
+        title.className = 'mv-toastTitle';
+        title.textContent = n.title;
+
+        const text = document.createElement('div');
+        text.className = 'mv-toastText';
+        text.textContent = n.text;
+
+        const closeBtn = document.createElement('button');
+        closeBtn.type = 'button';
+        closeBtn.className = 'mv-toastClose';
+        closeBtn.setAttribute('aria-label', 'Close');
+        closeBtn.textContent = '×';
+
+        body.append(title, text);
+        toast.append(body, closeBtn);
+        document.body.appendChild(toast);
+
+        const timer = setTimeout(close, n.duration);
+        function close() {
+            clearTimeout(timer);
+            toast.remove();
+        }
+        closeBtn.addEventListener('click', close);
+    }
+
     function handleAuthRedirectParams() {
         // reset-password.html zeigt für abgelaufene Links bereits seine eigene "invalid"-Box.
         if (IS_RECOVERY_PAGE) return;
         const key = classifyAuthRedirect(authRedirect);
         if (!key) return;
+
+        if (key === 'signup_confirmed' || key === 'email_changed') {
+            // Erfolg nur melden, wenn supabase-js die Session aus dem Link wirklich aufgebaut hat.
+            // (Den Hash räumt supabase-js bei Erfolg selbst weg, hier nichts anfassen.)
+            supabaseClient.auth.getSession()
+                .then(({ data }) => { if (data && data.session) showAuthToast(key); })
+                .catch(() => { /* dann eben kein Toast */ });
+            return;
+        }
+
         stripAuthRedirectParams();
-        showAuthNotice(key);
+        if (AUTH_TOASTS[key]) showAuthToast(key);
+        else showAuthNotice(key);
     }
 
     // ==========================================================================
