@@ -96,6 +96,12 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
     const PENDING_REGISTRATION_TTL_MS = 24 * 60 * 60 * 1000;
     const HISTORY_LIMIT = 50;
 
+    // Re-Consent (siehe Abschnitt "RECHTSTEXTE" weiter unten). Der Merker spart nur
+    // wiederholte Abfragen; er ist KEINE Sicherheitsgrenze (die Zustimmung selbst
+    // liegt ausschließlich in der Datenbank).
+    const CONSENT_OK_KEY = 'mv-consent-ok';
+    const CONSENT_OK_TTL_MS = 15 * 60 * 1000;
+
     let cache = { id: null, email: null, profile: null, toolHistory: {} };
 
     function isLoggedIn() { return !!cache.id; }
@@ -218,6 +224,8 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
             toolStateKeys.forEach(k => localStorage.removeItem(k));
             sessionStorage.removeItem('mv-return-url');
             sessionStorage.removeItem('mv-pending-verify-email');
+            sessionStorage.removeItem(CONSENT_OK_KEY);
+            sessionStorage.removeItem('mv-verify-note');
             sessionStorage.removeItem('mv-login-fails');
             sessionStorage.removeItem('mv-login-lock-until');
         } catch { /* Storage nicht verfügbar */ }
@@ -351,6 +359,7 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
                 cache = fresh;
                 persistMirror();
                 dispatchStateRestore();
+                checkLegalConsent();   // bewusst ohne await: blockiert das Laden nicht
             }
         } catch (err) {
             // Netzwerk/Supabase nicht erreichbar: Cache bleibt auf dem Stand des
@@ -496,7 +505,17 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
     // ==========================================================================
 
     async function registerUser(userData) {
-        const { username, email, password, ...rest } = userData;
+        // consent = { privacy, age, terms } (Booleans) - die gesetzten Checkboxen.
+        // Wird bewusst aus `rest` herausgenommen, damit es nicht in der
+        // Pending-Registration im localStorage / im Profil landet.
+        const { username, email, password, consent, ...rest } = userData;
+
+        // Frühe Ablehnung (UX). Die eigentliche Durchsetzung passiert serverseitig
+        // (Trigger record_signup_consent auf auth.users): ein Aufruf von
+        // /auth/v1/signup an dieser Funktion vorbei scheitert dort ebenfalls.
+        if (!consent || consent.privacy !== true || consent.age !== true || consent.terms !== true) {
+            return { success: false, reason: 'consent_required' };
+        }
 
         skipNextAuthEvent = true;
         let data, error;
@@ -504,7 +523,10 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
             ({ data, error } = await supabaseClient.auth.signUp({
                 email, password,
                 options: {
-                    data: { username }, // <- handle_new_user() liest username von hier
+                    // username: handle_new_user() liest ihn von hier.
+                    // consent_*: NUR Wahrheitswerte. Version und Zeitpunkt der
+                    // Zustimmung vergibt der Server (Tabelle user_consents).
+                    data: { username, consent_privacy: true, consent_age: true, consent_terms: true },
                     emailRedirectTo: window.MV_URL('index.html')
                 }
             }));
@@ -542,7 +564,16 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
             } catch { /* Storage voll o.ä. – nicht blockierend */ }
         }
 
-        return { success: true, needsEmailConfirmation: true };
+        // Gab es für diese E-Mail schon eine UNBESTÄTIGTE Registrierung? Dann legt Supabase keinen
+        // neuen Nutzer an und ändert weder Passwort noch Metadaten (Username, Zustimmung) - es
+        // schickt nur den Link erneut. Erkennbar daran, dass der Link gerade neu gesendet wurde,
+        // der Nutzer aber deutlich älter ist (beide Zeitstempel kommen vom Server, daher unabhängig
+        // von der Uhr des Browsers). Nur ein Hinweis für verify-email.html; kein Fehlerfall.
+        const createdMs = Date.parse((data.user && data.user.created_at) || '');
+        const sentMs = Date.parse((data.user && data.user.confirmation_sent_at) || '');
+        const existingUnconfirmed = !isExistingConfirmedEmail && !!createdMs && !!sentMs && (sentMs - createdMs > 30000);
+
+        return { success: true, needsEmailConfirmation: true, existingUnconfirmed };
     }
 
     async function resendConfirmationEmail(email) {
@@ -1088,10 +1119,12 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
     // ==========================================================================
 
     let modalReady = false;
+    let modalStyleReady = false;
 
-    function injectModal() {
-        if (modalReady) return;
-        modalReady = true;
+    // Gemeinsame Modal-Styles (Login-Prompt UND Re-Consent-Dialog).
+    function injectModalStyle() {
+        if (modalStyleReady) return;
+        modalStyleReady = true;
 
         const style = document.createElement('style');
         style.textContent = `
@@ -1116,8 +1149,23 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
             .mv-modalBtnSecondary:hover { color: var(--text-primary); border-color: var(--text-secondary); }
             @keyframes mvFadeIn { from { opacity: 0; } to { opacity: 1; } }
             @keyframes mvScaleIn { from { transform: scale(0.9); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+            .mv-consentBox { max-width: 460px; max-height: 90vh; overflow-y: auto; }
+            .mv-consentRow { display: flex; align-items: flex-start; gap: 0.6rem; text-align: left;
+                margin-bottom: 0.9rem; font-size: 0.8rem; color: var(--text-secondary); line-height: 1.5; cursor: pointer; }
+            .mv-consentRow input { accent-color: var(--border-glow); width: 16px; height: 16px;
+                margin-top: 3px; flex-shrink: 0; cursor: pointer; }
+            .mv-consentRow a { color: var(--border-glow); font-weight: 600; text-decoration: none; }
+            .mv-consentRow a:hover { text-decoration: underline; }
+            .mv-consentError { font-size: 0.78rem; line-height: 1.5; margin: 0 0 1rem; text-align: left; color: var(--accent-error); }
+            .mv-modalActions button[disabled] { opacity: 0.5; cursor: not-allowed; box-shadow: none; }
         `;
         document.head.appendChild(style);
+    }
+
+    function injectModal() {
+        if (modalReady) return;
+        modalReady = true;
+        injectModalStyle();
 
         const overlay = document.createElement('div');
         overlay.className = 'mv-modalOverlay';
@@ -1152,134 +1200,202 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
     }
 
     // ==========================================================================
-    // HINWEISE AUS E-MAIL-LINKS – Teil 2: Einordnung + Anzeige
-    // error_description kann von jedem per Link gesetzt werden. Deshalb wird
-    // NIE Text aus der URL angezeigt (Texteinschleusung/Phishing), sondern nur
-    // diese festen Meldungen. Die URL-Texte dienen nur zur Einordnung.
+    // RECHTSTEXTE: Zustimmung zu neuen Versionen (Re-Consent)
+    //
+    // Die Zustimmung wird AUSSCHLIESSLICH serverseitig gespeichert:
+    //   - Registrierung: Trigger record_signup_consent() auf auth.users
+    //   - Bestandsnutzer / neue Versionen: RPC accept_legal_documents()
+    // Der Client liefert nur Checkbox-Werte. Versionen und Zeitpunkt vergibt der Server.
     // ==========================================================================
-    const AUTH_NOTICES = {
-        link_expired: {
-            title: 'Link expired or already used',
-            text: 'This email link is no longer valid. Links work only once and only for a limited time. Some email programs open links automatically, which uses them up. Please request a new link.',
-            help: 'confirmation-email'
-        },
-        link_invalid: {
-            title: 'Link not valid',
-            text: 'This email link could not be verified. Please request a new link.',
-            help: 'confirmation-email'
-        },
-        server: {
-            title: 'Something went wrong',
-            text: 'The email service had a problem. Please try again in a few minutes.',
-            help: 'confirmation-email'
-        },
-        generic: {
-            title: 'Link could not be processed',
-            text: 'Something went wrong with this email link. Please request a new link.',
-            help: 'confirmation-email'
-        },
-        email_change_step: {
-            title: 'Almost done',
-            text: 'Your confirmation was received. To finish changing your email address, please also click the link in the email sent to your other address.',
-            help: 'change-account-data'
-        }
-    };
 
-    function classifyAuthRedirect(p) {
-        if (!p) return null;
-        const err  = (p.error || '').toLowerCase();
-        const code = (p.code || '').toLowerCase();
-        const desc = (p.description || '').toLowerCase();
+    let consentCheckRunning = false;
 
-        if (err || code || desc) {
-            if (code === 'otp_expired' || /expired|already (been )?used/.test(desc)) return 'link_expired';
-            if (err === 'server_error' || code === 'server_error' || code === 'unexpected_failure') return 'server';
-            if (err === 'access_denied' || code === 'access_denied') return 'link_invalid';
-            if (code || desc) return 'generic';
-            return null;
-        }
-        // Secure Email Change: nach dem ersten der zwei Links kommt eine Info statt eines Fehlers.
-        if (/confirmation link accepted/i.test(p.message || '')) return 'email_change_step';
-        return null;
+    function removeConsentModal() {
+        const el = document.getElementById('mvConsentModal');
+        if (el) el.remove();
     }
 
-    function stripAuthRedirectParams() {
+    function rememberConsentOk(uid) {
+        try { sessionStorage.setItem(CONSENT_OK_KEY, JSON.stringify({ uid, ts: Date.now() })); } catch { /* egal */ }
+    }
+
+    // Fragt beim Server, ob der eingeloggte Nutzer die AKTUELLEN Versionen akzeptiert
+    // hat, und zeigt andernfalls den Dialog. Schlägt die Abfrage fehl (offline, Migration
+    // noch nicht eingespielt), bleibt die Seite benutzbar - der Server protokolliert
+    // ohnehin nur echte Zustimmungen.
+    async function checkLegalConsent() {
+        if (IS_RECOVERY_PAGE || !cache.id) return;
+        if (document.body && document.body.dataset.consentGate === 'off') return;   // Rechtstexte, Impressum, User Area
+        if (consentCheckRunning || document.getElementById('mvConsentModal')) return;
+
+        const uid = cache.id;
         try {
-            const h = new URLSearchParams(location.hash.replace(/^#/, ''));
-            const s = new URLSearchParams(location.search);
-            let hashChanged = false, searchChanged = false;
-            AUTH_REDIRECT_KEYS.forEach(k => {
-                if (h.has(k)) { h.delete(k); hashChanged = true; }
-                if (s.has(k)) { s.delete(k); searchChanged = true; }
-            });
-            // Nur anfassen, was wirklich Fehlerparameter enthielt (z.B. bleibt "#top" unverändert).
-            const hash   = hashChanged   ? (h.toString() ? '#' + h.toString() : '') : location.hash;
-            const search = searchChanged ? (s.toString() ? '?' + s.toString() : '') : location.search;
-            history.replaceState(null, '', location.pathname + search + hash);
-        } catch { /* URL bleibt eben stehen */ }
+            const ok = JSON.parse(sessionStorage.getItem(CONSENT_OK_KEY) || 'null');
+            if (ok && ok.uid === uid && Date.now() - ok.ts < CONSENT_OK_TTL_MS) return;
+        } catch { /* kein Merker - normal weiterprüfen */ }
+
+        consentCheckRunning = true;
+        try {
+            const { data, error } = await supabaseClient.rpc('get_my_consent_status');
+            if (error) {
+                console.warn('[MV] Consent-Status nicht verfügbar:', error.message);
+                return;
+            }
+            if (cache.id !== uid) return;   // inzwischen ausgeloggt/gewechselt
+            if (data && data.needs_acceptance) showConsentModal(data);
+            else rememberConsentOk(uid);
+        } catch (err) {
+            console.warn('[MV] Consent-Prüfung fehlgeschlagen:', err && err.message);
+        } finally {
+            consentCheckRunning = false;
+        }
     }
 
-    function showAuthNotice(key) {
-        const n = AUTH_NOTICES[key] || AUTH_NOTICES.generic;
-        injectModal();   // sorgt dafür, dass die .mv-modal*-Styles existieren
-        const old = document.getElementById('mvAuthNoticeModal');
-        if (old) old.remove();
+    function showConsentModal(status) {
+        if (document.getElementById('mvConsentModal')) return;
+        injectModalStyle();
+
+        const docs = {};
+        (status.documents || []).forEach(d => { docs[d.doc_type] = d; });
+        const privacyOpen = !!docs.privacy_policy && !docs.privacy_policy.accepted;
+        const termsOpen   = !!docs.terms_of_service && !docs.terms_of_service.accepted;
+        const needsAge    = !!status.needs_age_confirmation;
 
         const overlay = document.createElement('div');
         overlay.className = 'mv-modalOverlay';
-        overlay.id = 'mvAuthNoticeModal';
+        overlay.id = 'mvConsentModal';
         overlay.setAttribute('role', 'dialog');
         overlay.setAttribute('aria-modal', 'true');
+        overlay.setAttribute('aria-labelledby', 'mvConsentTitle');
 
         const box = document.createElement('div');
-        box.className = 'mv-modalBox';
+        box.className = 'mv-modalBox mv-consentBox';
 
         const title = document.createElement('h2');
         title.className = 'mv-modalTitle';
-        title.textContent = n.title;
+        title.id = 'mvConsentTitle';
+        title.textContent = 'Please review our legal documents';
+        box.appendChild(title);
 
         const text = document.createElement('p');
         text.className = 'mv-modalText';
-        text.textContent = n.text;
+        text.textContent = 'To keep using your account, please confirm the following. ' +
+            'If you do not agree, you can log out and keep using Globomath without an account.';
+        box.appendChild(text);
+
+        const boxes = [];
+        function addRow(labelParts, versionText) {
+            const row = document.createElement('label');
+            row.className = 'mv-consentRow';
+            const cb = document.createElement('input');
+            cb.type = 'checkbox';
+            row.appendChild(cb);
+            const span = document.createElement('span');
+            labelParts.forEach(part => {
+                if (typeof part === 'string') span.appendChild(document.createTextNode(part));
+                else {
+                    const a = document.createElement('a');
+                    a.href = part.href;
+                    a.target = '_blank';
+                    a.rel = 'noopener noreferrer';
+                    a.textContent = part.text;
+                    span.appendChild(a);
+                }
+            });
+            if (versionText) span.appendChild(document.createTextNode(` (version ${versionText})`));
+            row.appendChild(span);
+            box.appendChild(row);
+            boxes.push(cb);
+            return cb;
+        }
+
+        let privacyBox = null, termsBox = null;
+        if (privacyOpen) {
+            privacyBox = addRow([
+                needsAge ? 'I confirm that I am 14 years of age or older and I accept the ' : 'I accept the ',
+                { href: `${window.MV_BASE}/html/Privacypolicy.html`, text: 'Privacy policy' }
+            ], docs.privacy_policy.version);
+        }
+        if (termsOpen) {
+            termsBox = addRow([
+                'I accept the ',
+                { href: `${window.MV_BASE}/html/Terms-of-Service.html`, text: 'Terms of Service' }
+            ], docs.terms_of_service.version);
+        }
+
+        const errorEl = document.createElement('p');
+        errorEl.className = 'mv-consentError';
+        errorEl.setAttribute('role', 'alert');
+        errorEl.style.display = 'none';
+        box.appendChild(errorEl);
 
         const actions = document.createElement('div');
         actions.className = 'mv-modalActions';
+        const logoutBtn = document.createElement('button');
+        logoutBtn.type = 'button';
+        logoutBtn.className = 'mv-modalBtnSecondary';
+        logoutBtn.textContent = 'Log out';
+        const acceptBtn = document.createElement('button');
+        acceptBtn.type = 'button';
+        acceptBtn.className = 'mv-modalBtnPrimary';
+        acceptBtn.textContent = 'Accept and continue';
+        acceptBtn.disabled = true;
+        actions.append(logoutBtn, acceptBtn);
+        box.appendChild(actions);
 
-        const closeBtn = document.createElement('button');
-        closeBtn.type = 'button';
-        closeBtn.className = 'mv-modalBtnSecondary';
-        closeBtn.textContent = 'Close';
-
-        const helpLink = document.createElement('a');
-        helpLink.className = 'mv-modalBtnPrimary';
-        helpLink.href = `${window.MV_BASE}/html/help.html#${n.help}`;
-        helpLink.textContent = 'Open help';
-
-        actions.append(closeBtn, helpLink);
-        box.append(title, text, actions);
         overlay.appendChild(box);
         document.body.appendChild(overlay);
 
-        function close() {
-            overlay.remove();
-            document.removeEventListener('keydown', onKey);
+        const syncButton = () => { acceptBtn.disabled = !boxes.every(cb => cb.checked); };
+        boxes.forEach(cb => cb.addEventListener('change', syncButton));
+        if (boxes[0]) boxes[0].focus();
+
+        function showError(msg) {
+            errorEl.textContent = msg;
+            errorEl.style.display = 'block';
         }
-        function onKey(e) { if (e.key === 'Escape') close(); }
 
-        closeBtn.addEventListener('click', close);
-        overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
-        document.addEventListener('keydown', onKey);
-        closeBtn.focus();
+        logoutBtn.addEventListener('click', async () => {
+            logoutBtn.disabled = true;
+            acceptBtn.disabled = true;
+            await logout();
+            removeConsentModal();
+        });
+
+        acceptBtn.addEventListener('click', async () => {
+            errorEl.style.display = 'none';
+            acceptBtn.disabled = true;
+            logoutBtn.disabled = true;
+            const uid = cache.id;
+
+            let res;
+            try {
+                res = await supabaseClient.rpc('accept_legal_documents', {
+                    p_privacy: !!(privacyBox && privacyBox.checked),
+                    p_terms: !!(termsBox && termsBox.checked),
+                    p_age: !!(needsAge && privacyBox && privacyBox.checked)
+                });
+            } catch {
+                logoutBtn.disabled = false;
+                syncButton();
+                showError('Could not reach the server. Please check your connection and try again.');
+                return;
+            }
+
+            if (res.error) {
+                logoutBtn.disabled = false;
+                syncButton();
+                showError('Your confirmation could not be saved. Please try again.');
+                return;
+            }
+
+            rememberConsentOk(uid);
+            removeConsentModal();
+        });
     }
 
-    function handleAuthRedirectParams() {
-        // reset-password.html zeigt für abgelaufene Links bereits seine eigene "invalid"-Box.
-        if (IS_RECOVERY_PAGE) return;
-        const key = classifyAuthRedirect(authRedirect);
-        if (!key) return;
-        stripAuthRedirectParams();
-        showAuthNotice(key);
-    }
+    // Logout (auch in einem anderen Tab) schließt einen offenen Dialog.
+    window.addEventListener('mv:staterestore', () => { if (!isLoggedIn()) removeConsentModal(); });
 
     // Beendet die temporäre Recovery-Session (nur auf der Recovery-Seite erlaubt).
     // scope 'local': widerruft nur DIESE Session, andere Geräte/Tabs bleiben eingeloggt.
@@ -1312,6 +1428,7 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
         getToolState, setToolState, getAllGuestToolStates,
         getPasswordStrength,
         showLoginPrompt, hideLoginPrompt,
+        checkLegalConsent,
         getUsername: () => (getCurrentUser()?.username) || 'Guest',
         getEmail: () => (getCurrentUser()?.email) || '',
         isUsernameTaken, isUsernameFormatValid, isUsernameReserved,

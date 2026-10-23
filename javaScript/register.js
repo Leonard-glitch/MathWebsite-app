@@ -364,6 +364,9 @@ form.addEventListener('submit', async (e) => {
             username: uname,
             email: emailInput.value.trim(),
             password: passwordInput.value,
+            // Nur die Checkbox-Werte. Der Server prüft sie erneut und legt Version und
+            // Zeitpunkt selbst fest. Die erste Checkbox bestätigt Datenschutz UND Alter (14+).
+            consent: { privacy: privacyCheckbox.checked, age: privacyCheckbox.checked, terms: termsCheckbox.checked },
             favoriten: [],
             pinnedGroups: ["favoritenGroupStar"], 
             containerOrders: {},
@@ -390,6 +393,8 @@ form.addEventListener('submit', async (e) => {
             const reason = (result.reason || '').toLowerCase();
             if (reason === 'network_error') {
                 showMsg(formError, 'Could not reach the server. Please check your connection and try again.');
+                } else if (reason === 'consent_required') {
+                    showMsg(formError, 'You must accept the privacy policy and the Terms of Service.');
                 } else if (reason.includes('already registered') || reason.includes('already exists')) {
                     setError(emailInput);
                     showMsg(emailError, 'An account already exists for this email address.');
@@ -412,6 +417,9 @@ form.addEventListener('submit', async (e) => {
         if (result.needsEmailConfirmation) {
             try {
                 sessionStorage.setItem('mv-pending-verify-email', emailInput.value.trim());
+                // Hinweis für verify-email.html: es gab schon eine unbestätigte Registrierung
+                if (result.existingUnconfirmed) sessionStorage.setItem('mv-verify-note', 'existing');
+                else sessionStorage.removeItem('mv-verify-note');
             } catch { /* ignore */ }
             window.location.href = 'verify-email.html';
             return;
