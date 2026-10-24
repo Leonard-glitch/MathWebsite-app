@@ -324,6 +324,11 @@ section {
     flex-shrink: 0;
 }
 
+#verifyNote{
+    color: orange;
+    border-color: orange;
+}
+
 .xLoginBtn--secondary {
     background-color: transparent;
     color: var(--text-primary);
