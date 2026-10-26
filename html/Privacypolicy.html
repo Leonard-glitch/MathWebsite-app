@@ -143,7 +143,7 @@
                 <li><strong>Calculation history</strong> (for example in the Math Calculator): the expression, the result and the time. Only the most recent entries are kept (currently up to 50 per tool). You can delete single entries or the whole history yourself. The history is saved only while you are logged in; calculations made as a guest are not stored.</li></li>
                 <li><strong>Account information:</strong> creation date and an internal status flag (currently not in use)</li>
             </ul>
-<p><strong>Guest settings:</strong> if you registered after using Globomath as a guest, tool settings stored locally in your browser (for example currency, decimal places and your last chosen unit category) are copied into your new account. This happens within 24 hours after registering, when you confirm your email address or log in in the same browser. Calculation history is not stored for guests, so there is nothing to copy.</p>            <p><strong>Legal basis:</strong> providing the features you request (Art. 6(1)(b) GDPR).</p>
+            <p><strong>Guest settings:</strong> if you registered after using Globomath as a guest, tool settings stored locally in your browser (for example currency, decimal places and your last chosen unit category) are copied into your new account. This happens within 24 hours after registering, when you confirm your email address or log in in the same browser. Calculation history is not stored for guests, so there is nothing to copy.</p>            <p><strong>Legal basis:</strong> providing the features you request (Art. 6(1)(b) GDPR).</p>
             <p><strong>Access:</strong> database rules (row-level security) ensure that each user can only access their own data. The operator has technical access to the database for operation, security and support; this access is protected by two-factor authentication.</p>
 
             <!-- 7 -->
@@ -166,13 +166,14 @@
                         <tr><td><code>sb-…-auth-token</code></td><td>localStorage</td><td>Keeps you logged in (session issued by the authentication service)</td><td>Until you log out or the session expires</td></tr>
                         <tr><td><code>currentUser</code>, <code>isLoggedIn</code></td><td>localStorage</td><td>Local copy of your profile (email, username, settings, favorites, history) for fast display</td><td>Until you log out</td></tr>
                         <tr><td><code>mv-theme</code>, <code>mv-design</code>, <code>mv-fontsize</code></td><td>localStorage</td><td>Remember your appearance settings, also without an account</td><td>Until you clear your browser data</td></tr>
-                        <tr><td><code>mv-currency</code>, <code>mv-decimalPlaces</code>, <code>mv-liveResult</code>, <code>mv-angleMode</code></td><td>localStorage</td><td>Guest preferences for the finance, geometry and math tools</td><td>Until you log out or clear your browser data</td></tr>
+                        <tr><td><code>mv-currency</code>, <code>mv-decimalPlaces</code>, <code>mv-liveResult</code>, <code>mv-angleMode</code></td><td>localStorage</td><td>Guest preferences for the finance, geometry and math tools</td><td>Until you clear your browser data</td></tr>
                         <tr><td><code>mv-toolstate-…</code></td><td>localStorage</td><td>Guest tool selections (for example the last chosen unit category)</td><td>Until you log out or clear your browser data</td></tr>
-                        <tr><td><code>mv-toolHistory</code></td><td>localStorage</td><td>Guest calculation history</td><td>Until you register, log out or clear your browser data</td></tr>
                         <tr><td><code>mv-pending-registration</code></td><td>localStorage</td><td>Temporary copy of your settings (including your email address) until you confirm your email after registering</td><td>Up to 24 hours</td></tr>
                         <tr><td><code>mv-return-url</code></td><td>sessionStorage</td><td>Returns you to the page you came from after login</td><td>Until you close the tab</td></tr>
                         <tr><td><code>mv-pending-verify-email</code></td><td>sessionStorage</td><td>Shows to which address the confirmation email was sent</td><td>Until you close the tab</td></tr>
                         <tr><td><code>mv-login-fails</code>, <code>mv-login-lock-until</code></td><td>sessionStorage</td><td>Slows down repeated failed login attempts</td><td>Until you close the tab</td></tr>
+                        <tr><td><code>mv-consent-ok</code></td><td>sessionStorage</td><td>Remembers for 15 minutes that you have already accepted the current Privacy Policy and Terms, so the check is not repeated on every page (contains your account ID)</td><td>Until you close the tab or log out</td></tr>
+                        <tr><td><code>mv-verify-note</code></td><td>sessionStorage</td><td>Shows a hint on the "verification email sent" page if your email address was already registered but not confirmed</td><td>Until you close the tab</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -248,7 +249,7 @@
                         <tr><td>Calculation history</td><td>Until you delete entries or your account; only the most recent entries are kept (currently up to 50 per tool)</td></tr>
                         <tr><td>Unconfirmed registrations</td><td>Deleted automatically after 14 days</td></tr>
                         <tr><td>Login session</td><td>Until you log out or the session expires</td></tr>
-                        <tr><td>Guest data in your browser</td><td>On your device until you clear your browser data (guest history is also removed when you register or log out)</td></tr>
+                        <tr><td>Guest data in your browser</td><td>On your device until you clear your browser data (tool selections are also removed when you log out)</td></tr>
                         <tr><td>Cloudflare technical logs</td><td>Up to 30 days (Free Plan)</td></tr>
                         <tr><td>Supabase logs and authentication audit data</td><td>Up to 1 day under our free plan</td></tr>
                         <tr><td>Resend delivery logs</td><td>30 days</td></tr>
