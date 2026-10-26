@@ -753,7 +753,7 @@ function renderHistoryList(onReuse) {
     const isOpen = historyOutput.classList.contains("is-open");
 
     if (!window.MV.isLoggedIn()) {
-        historyOutput.innerHTML = `<p class="historyEmptyState">Log in to see your history.</p>`;
+        historyOutput.innerHTML = `<p class="historyEmptyState">Log in to save and see your history.</p>`;
         if (deleteWrapper) deleteWrapper.classList.remove("is-visible");
         return;
     }

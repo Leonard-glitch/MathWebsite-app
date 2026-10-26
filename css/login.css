@@ -213,6 +213,8 @@ section {
     border-radius: var(--radius-sm);
 }
 
+.field-error a { color: inherit; font-weight: 600; text-decoration: underline; }
+
 /* ==========================================================================
    LINK ZUR REGISTRIERUNG
    ========================================================================== */

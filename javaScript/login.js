@@ -179,11 +179,23 @@ form.addEventListener('submit', async (e) => {
                 setError(usernameInput, usernameError, 'Please log in with your email address.');
             } else if (result.reason === 'network_error') {
                 showMsg(formError, 'Could not reach the server. Please check your connection and try again.');
+            } else if (result.reason === 'email_not_confirmed') {
+                try {
+                    sessionStorage.setItem('mv-pending-verify-email', uname);
+                    sessionStorage.removeItem('mv-verify-note');
+                } catch { /* ignore */ }
+                showMsg(formError, 'Please confirm your email address first. ');
+                const link = document.createElement('a');
+                link.href = './verify-email.html';
+                link.textContent = 'Resend the confirmation email';
+                formError.appendChild(link);
+            } else if (result.reason === 'banned') {
+                showMsg(formError, 'This account has been suspended. Please contact contact@globomath.com.');
             } else {
                 setError(usernameInput, null);
                 setError(passwordInput, formError, 'Email or password is incorrect.');
             }
-            if (result.reason !== 'network_error') registerLoginFailure();
+            if (!['network_error', 'email_not_confirmed', 'banned'].includes(result.reason)) registerLoginFailure();
             return;
         }
 

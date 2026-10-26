@@ -19,7 +19,7 @@ Nicht gespeichert: IP-Adresse, User-Agent.
 ## Wie es abgesichert ist
 
 - Der Browser schickt bei `signUp` nur drei Wahrheitswerte (`consent_privacy`, `consent_age`, `consent_terms`). Ein Datenbank-Trigger auf `auth.users` lehnt die Registrierung ab, wenn eines davon nicht exakt `true` ist. Das gilt auch für Aufrufe, die an der Website vorbei direkt an Supabase gehen.
-- Versionen und Zeitpunkte setzt ausschließlich die Datenbank. Die aktuellen Versionen stehen in der Funktion `current_legal_versions()`; Clients können sie weder lesen noch ändern.
+- Versionen und Zeitpunkte setzt ausschließlich die Datenbank. Die aktuellen Versionen stehen in der Funktion `current_legal_versions()`;Clients können die Funktion nicht aufrufen (die Versionen sehen sie nur über `get_my_consent_status()`).
 - Clients haben auf `user_consents` und `consent_history` keinerlei Zugriff (kein Lesen, Schreiben, Löschen). Sie können nur `get_my_consent_status()` und `accept_legal_documents()` aufrufen, und diese wirken nur auf den eigenen Nutzer (aus dem Login, nicht aus einem Parameter).
 - Das spätere Ändern von `user_metadata` (`supabase.auth.updateUser`) hat keinen Einfluss auf das Gespeicherte.
 - Wer im Dashboard als Betreiber (`service_role`/`postgres`) arbeitet, kann Zeilen ändern. Das ist bewusst nicht gesperrt.
@@ -53,6 +53,8 @@ Registriert sich jemand mit einer E-Mail erneut, deren Konto noch **nicht bestä
 
 ## Neue Version eines Dokuments
 
+Nutzer mind. 14 Tage vorher per E-Mail informieren (ToS 15.2), Text und Migration erst zum Stichtag ausspielen.
+
 1. Text ändern, "Version x.y" und Datum im Text anheben.
 2. Neue Migration anlegen, die `public.current_legal_versions()` ersetzt, z. B. Terms 1.1:
    ```sql
@@ -61,7 +63,7 @@ Registriert sich jemand mit einer E-Mail erneut, deren Konto noch **nicht bestä
    language sql stable set search_path = ''
    as $$ select '1.0'::text, '1.1'::text $$;
    ```
-3. Frontend und Migration ausspielen. Eingeloggte Nutzer sehen beim nächsten Seitenaufruf (spätestens nach ca. 15 Minuten) den Bestätigungs-Dialog für das geänderte Dokument. Die 14+-Bestätigung wird nicht erneut verlangt. Die bisherige Zustimmung bleibt in `consent_history`.
+3. Frontend und Migration ausspielen. Eingeloggte Nutzer sehen beim nächsten Seitenaufruf, sobald der 15-Minuten-Merker des Tabs abgelaufen ist. Bereits geöffnete Seiten ohne Neuladen zeigen den Dialog nicht. den Bestätigungs-Dialog für das geänderte Dokument. Die 14+-Bestätigung wird nicht erneut verlangt. Die bisherige Zustimmung bleibt in `consent_history`.
 
 ## Nachweis im Streitfall
 

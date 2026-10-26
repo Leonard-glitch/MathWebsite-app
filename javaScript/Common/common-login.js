@@ -8,20 +8,7 @@ window.MV_BASE = ((document.currentScript || {}).src || '')
 window.MV_URL = function (path) {
     return window.MV_BASE + '/' + String(path || '').replace(/^\/+/, '');
 };
-/* =============================================================================
- * VORAUSSETZUNG (muss VOR diesem Script geladen werden, in jeder HTML-Datei):
- *
- *   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
- *   <script src=".../javaScript/Common/theme-init.js"></script>
- *   <script src=".../javaScript/Common/common-login.js"></script>
- *
- * Grund: common-login.js ist bewusst weiterhin ein klassisches <script> (kein
- * type="module"), damit sich an der Lade-Reihenfolge/-Art der ~20 HTML-Seiten
- * nichts ändern muss. Die UMD-Version des Supabase-Clients stellt sich dafür
- * als window.supabase zur Verfügung.
- *
- * TODO (zwingend vor dem ersten Test auszufüllen):
- * ============================================================================= */
+
 const MV_SUPABASE_URL = 'https://kdfulescwtiyjilnmewg.supabase.co';
 const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
 
@@ -299,23 +286,13 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
             containerOrders: payload.containerOrders, theme: payload.theme,
             fontsize: payload.fontsize, currency: payload.currency,
             decimalPlaces: payload.decimalPlaces, liveResult: payload.liveResult,
-            angleMode: payload.angleMode, toolStates: payload.toolStates, isPro: payload.isPro
+            angleMode: payload.angleMode, toolStates: payload.toolStates
         });
         if (Object.keys(patch).length > 0) {
             const { error } = await supabaseClient.from('profiles').update(patch).eq('id', userId);
             if (error) console.warn('[MV] Registrierungsdaten (Einstellungen) konnten nicht übernommen werden:', error.message);
         }
 
-        const rows = [];
-        Object.entries(payload.toolHistory || {}).forEach(([toolKey, entries]) => {
-            (entries || []).forEach(entry => {
-                rows.push({ user_id: userId, tool_key: toolKey, expression: entry.expr, result: entry.result, created_at: entry.timestamp });
-            });
-        });
-        if (rows.length > 0) {
-            const { error } = await supabaseClient.from('tool_history').insert(rows);
-            if (error) console.warn('[MV] Registrierungsdaten (Verlauf) konnten nicht übernommen werden:', error.message);
-        }
     }
 
     async function applyPendingRegistrationIfMatching(userId, email) {
@@ -610,7 +587,13 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
             skipNextAuthEvent = false;
             return { success: false, reason: 'network_error' };
         }
-        if (error) { skipNextAuthEvent = false; return { success: false, reason: 'invalid_credentials' }; }
+        if (error) {
+            skipNextAuthEvent = false;
+            const reason = error.code === 'email_not_confirmed' ? 'email_not_confirmed'
+                         : error.code === 'user_banned'        ? 'banned'
+                         : 'invalid_credentials';
+            return { success: false, reason };
+        }
 
         await applyPendingRegistrationIfMatching(data.user.id, data.user.email);
         const fresh = await fetchFreshState(data.user.id, data.user.email);
@@ -947,67 +930,41 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
     // TOOL HISTORY (Gast: unverändert localStorage / Login: Cache + tool_history)
     // ==========================================================================
 
+    // Verlauf nur für eingeloggte Nutzer. Gäste: nichts wird im Browser gespeichert.
+    // Altbestand früherer Versionen wird einmalig entfernt.
     const GUEST_HISTORY_KEY = 'mv-toolHistory';
-
-    function getGuestToolHistoryStore() {
-        try {
-            const store = JSON.parse(localStorage.getItem(GUEST_HISTORY_KEY));
-            return (store && typeof store === 'object') ? store : {};
-        } catch { return {}; }
-    }
-    function saveGuestToolHistoryStore(store) {
-        localStorage.setItem(GUEST_HISTORY_KEY, JSON.stringify(store));
-    }
-    function getAllGuestToolHistory() { return getGuestToolHistoryStore(); }
-    function clearGuestToolHistoryStore() { localStorage.removeItem(GUEST_HISTORY_KEY); }
+    try { localStorage.removeItem(GUEST_HISTORY_KEY); } catch { /* Storage nicht verfügbar */ }
 
     function getToolHistory(key) {
-        if (isLoggedIn()) return cache.toolHistory[key] || [];
-        return getGuestToolHistoryStore()[key] || [];
+        return isLoggedIn() ? (cache.toolHistory[key] || []) : [];
     }
 
     function addToolHistoryEntry(key, entry) {
+        if (!isLoggedIn()) return null;
         const fullEntry = {
             id: (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
             ...entry
         };
-
-        if (isLoggedIn()) {
-            cache.toolHistory[key] = [...(cache.toolHistory[key] || []), fullEntry].slice(-HISTORY_LIMIT);
-            supabaseClient.from('tool_history').insert({
-                id: fullEntry.id, user_id: cache.id, tool_key: key,
-                expression: fullEntry.expr, result: fullEntry.result, created_at: fullEntry.timestamp
-            }).then(({ error }) => { if (error) console.warn('[MV] Verlaufseintrag konnte nicht gespeichert werden:', error.message); });
-        } else {
-            const store = getGuestToolHistoryStore();
-            store[key] = [...(store[key] || []), fullEntry].slice(-HISTORY_LIMIT);
-            saveGuestToolHistoryStore(store);
-        }
+        cache.toolHistory[key] = [...(cache.toolHistory[key] || []), fullEntry].slice(-HISTORY_LIMIT);
+        supabaseClient.from('tool_history').insert({
+            id: fullEntry.id, user_id: cache.id, tool_key: key,
+            expression: fullEntry.expr, result: fullEntry.result, created_at: fullEntry.timestamp
+        }).then(({ error }) => { if (error) console.warn('[MV] Verlaufseintrag konnte nicht gespeichert werden:', error.message); });
         return fullEntry;
     }
 
     function deleteToolHistoryEntry(key, id) {
-        if (isLoggedIn()) {
-            cache.toolHistory[key] = (cache.toolHistory[key] || []).filter(e => e.id !== id);
-            supabaseClient.from('tool_history').delete().eq('id', id).eq('user_id', cache.id)
-                .then(({ error }) => { if (error) console.warn('[MV] Löschen fehlgeschlagen:', error.message); });
-        } else {
-            const store = getGuestToolHistoryStore();
-            store[key] = (store[key] || []).filter(e => e.id !== id);
-            saveGuestToolHistoryStore(store);
-        }
+        if (!isLoggedIn()) return;
+        cache.toolHistory[key] = (cache.toolHistory[key] || []).filter(e => e.id !== id);
+        supabaseClient.from('tool_history').delete().eq('id', id).eq('user_id', cache.id)
+            .then(({ error }) => { if (error) console.warn('[MV] Löschen fehlgeschlagen:', error.message); });
     }
 
     function clearToolHistory(key) {
-        if (isLoggedIn()) {
-            cache.toolHistory[key] = [];
-            supabaseClient.from('tool_history').delete().eq('user_id', cache.id).eq('tool_key', key)
-                .then(({ error }) => { if (error) console.warn('[MV] Verlauf löschen fehlgeschlagen:', error.message); });
-        } else {
-            const store = getGuestToolHistoryStore();
-            store[key] = [];
-            saveGuestToolHistoryStore(store);
-        }
+        if (!isLoggedIn()) return;
+        cache.toolHistory[key] = [];
+        supabaseClient.from('tool_history').delete().eq('user_id', cache.id).eq('tool_key', key)
+            .then(({ error }) => { if (error) console.warn('[MV] Verlauf löschen fehlgeschlagen:', error.message); });
     }
 
     // ==========================================================================
@@ -1425,7 +1382,17 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
             // Erfolg nur melden, wenn supabase-js die Session aus dem Link wirklich aufgebaut hat.
             // (Den Hash räumt supabase-js bei Erfolg selbst weg, hier nichts anfassen.)
             supabaseClient.auth.getSession()
-                .then(({ data }) => { if (data && data.session) showAuthToast(key); })
+                .then(async ({ data }) => {
+                    if (!(data && data.session)) return;
+                    if (key === 'signup_confirmed') {
+                        // Gast-Einstellungen genau jetzt übernehmen (loginUser() läuft auf diesem Weg nie)
+                        try {
+                            await applyPendingRegistrationIfMatching(data.session.user.id, data.session.user.email);
+                            await hydrate();
+                        } catch (err) { console.warn('[MV] Übernahme der Registrierungsdaten fehlgeschlagen:', err && err.message); }
+                    }
+                    showAuthToast(key);
+                })
                 .catch(() => { /* dann eben kein Toast */ });
             return;
         }
@@ -1659,7 +1626,6 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
         getCurrency, setCurrency, getCurrencySymbol, formatCurrency, formatCurrencyCompact,
         getDecimalPlaces, setDecimalPlaces,
         getToolHistory, addToolHistoryEntry, deleteToolHistoryEntry, clearToolHistory,
-        getAllGuestToolHistory, clearGuestToolHistoryStore,
         getLiveResult, setLiveResult,
         getToolState, setToolState, getAllGuestToolStates,
         getPasswordStrength,
@@ -1779,7 +1745,7 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
     // ==========================================================================
     // ZENTRALES STATE-RESTORE-SIGNAL
     // ==========================================================================
-    const RESTORE_STORAGE_KEYS = ['currentUser', 'isLoggedIn', 'mv-currency', 'mv-theme', 'mv-design', 'mv-fontsize', 'mv-decimalPlaces', 'mv-liveResult', 'mv-angleMode', 'mv-toolHistory'];
+    const RESTORE_STORAGE_KEYS = ['currentUser', 'isLoggedIn', 'mv-currency', 'mv-theme', 'mv-design', 'mv-fontsize', 'mv-decimalPlaces', 'mv-liveResult', 'mv-angleMode'];
 
     function dispatchStateRestore() {
         if (applyAuthGuard(true)) return;   // true: State-Restore, recovery bleibt ausgenommen

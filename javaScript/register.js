@@ -65,7 +65,10 @@ function showSuccessMsg(el, msg) {
 // ===========================================================================
 // VALIDATION FUNCTIONS
 // ===========================================================================
+
+let usernameCheckSeq = 0;
 async function validateUsername(silent = false) {
+    const seq = ++usernameCheckSeq;
     const val = usernameInput.value.trim();
 
     if (!val) {
@@ -80,7 +83,9 @@ async function validateUsername(silent = false) {
         return false;
     }
 
-    if (window.MV.isUsernameReserved(val) || await window.MV.isUsernameTaken(val)) {
+    const unavailable = window.MV.isUsernameReserved(val) || await window.MV.isUsernameTaken(val);
+    if (seq !== usernameCheckSeq) return false;   // inzwischen neuere Eingabe
+    if (unavailable) {
         setError(usernameInput);
         if (!silent) showMsg(usernameError, `"${val}" is already taken.`);
         return false;
@@ -181,9 +186,11 @@ passwordConfInput.addEventListener('blur', () => validatePasswordConf());
 
 // INPUT EVENTS
 
+let usernameTimer;
 usernameInput.addEventListener('input', () => {
     usernameInput.classList.remove('shake');
-    validateUsername();
+    clearTimeout(usernameTimer);
+    usernameTimer = setTimeout(() => validateUsername(), 350);
 });
 
 emailInput.addEventListener('input', () => {
@@ -376,9 +383,7 @@ form.addEventListener('submit', async (e) => {
             decimalPlaces: window.MV.getDecimalPlaces(),
             liveResult: window.MV.getLiveResult(),
             angleMode: window.MV.getAngleMode(),
-            toolHistory: window.MV.getAllGuestToolHistory(),
             toolStates: window.MV.getAllGuestToolStates(),
-            isPro: false,
             createdAt: Date.now()
         });
 
@@ -411,8 +416,6 @@ form.addEventListener('submit', async (e) => {
                 }
             return;
         }
-
-        window.MV.clearGuestToolHistoryStore();
 
         if (result.needsEmailConfirmation) {
             try {

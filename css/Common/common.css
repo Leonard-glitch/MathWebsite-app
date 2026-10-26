@@ -318,6 +318,18 @@ input:-webkit-autofill:focus {
 }
 
 
+/* Lange, unteilbare Strings (z. B. E-Mail-Adressen) dürfen umbrechen */
+.errorMessagestyle,
+.successMessagestyle,
+.modalText,
+.mv-modalText,
+.editModeHint {
+    overflow-wrap: anywhere;
+}
+
+.successMessagestyle > span {
+    min-width: 0;
+}
 
 /* ========================================================================== 
    SuchFunktion Über alle Tools - MathVerse Style
