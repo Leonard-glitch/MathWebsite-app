@@ -396,7 +396,7 @@ return (unitLabels[currentCategory] && unitLabels[currentCategory][unit]) || uni
 
 // Kategorien, die nur im Advanced Mode als Buttons sichtbar sind
 const advancedCategoryNames = [
-"volume", "pressure", "energy", "frequency",
+"pressure", "energy", "frequency",
 "decimalprefixes", "angle", "datasize",
 "temperature", "fuelconsumption"
 ]; // wird mit jeder neuen Advanced-Kategorie ergänzt
