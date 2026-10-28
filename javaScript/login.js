@@ -189,13 +189,11 @@ form.addEventListener('submit', async (e) => {
                 link.href = './verify-email.html';
                 link.textContent = 'Resend the confirmation email';
                 formError.appendChild(link);
-            } else if (result.reason === 'banned') {
-                showMsg(formError, 'This account has been suspended. Please contact contact@globomath.com.');
             } else {
                 setError(usernameInput, null);
                 setError(passwordInput, formError, 'Email or password is incorrect.');
             }
-            if (!['network_error', 'email_not_confirmed', 'banned'].includes(result.reason)) registerLoginFailure();
+            if (!['network_error', 'email_not_confirmed'].includes(result.reason)) registerLoginFailure();
             return;
         }
 

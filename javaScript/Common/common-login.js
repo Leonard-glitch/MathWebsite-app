@@ -288,17 +288,19 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
             decimalPlaces: payload.decimalPlaces, liveResult: payload.liveResult,
             angleMode: payload.angleMode, toolStates: payload.toolStates
         });
-        if (Object.keys(patch).length > 0) {
-            const { error } = await supabaseClient.from('profiles').update(patch).eq('id', userId);
-            if (error) console.warn('[MV] Registrierungsdaten (Einstellungen) konnten nicht übernommen werden:', error.message);
+        if (Object.keys(patch).length === 0) return true;
+        const { error } = await supabaseClient.from('profiles').update(patch).eq('id', userId);
+        if (error) {
+            console.warn('[MV] Registrierungsdaten (Einstellungen) konnten nicht übernommen werden:', error.message);
+            return false;
         }
-
+        return true;
     }
 
     async function applyPendingRegistrationIfMatching(userId, email) {
         let stash;
         try { stash = JSON.parse(localStorage.getItem(PENDING_REGISTRATION_KEY) || 'null'); } catch { stash = null; }
-        if (!stash) return;
+        if (!stash || !stash.payload) return;
 
         // Abgelaufen (nie bestätigte Registrierung): enthält die E-Mail-Adresse
         // und lag bisher unbegrenzt im Browser.
@@ -307,13 +309,14 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
             localStorage.removeItem(PENDING_REGISTRATION_KEY);
             return;
         }
-        if (stash.email !== email) return;
+        // Supabase speichert E-Mails kleingeschrieben, die Eingabe kann Großbuchstaben enthalten
+        if ((stash.email || '').trim().toLowerCase() !== (email || '').trim().toLowerCase()) return;
 
         // Erst NACH applyRegistrationPayload() entfernen: schlägt der Write
         // fehl, bleibt der Stash für einen erneuten Versuch beim nächsten
         // Login erhalten, statt endgültig verloren zu gehen.
-        await applyRegistrationPayload(userId, stash.payload);
-        localStorage.removeItem(PENDING_REGISTRATION_KEY);
+        const ok = await applyRegistrationPayload(userId, stash.payload);
+        if (ok) localStorage.removeItem(PENDING_REGISTRATION_KEY);
     }
 
     // Guards overlapping hydrate() calls finishing out of order — only the
@@ -589,9 +592,9 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
         }
         if (error) {
             skipNextAuthEvent = false;
-            const reason = error.code === 'email_not_confirmed' ? 'email_not_confirmed'
-                         : error.code === 'user_banned'        ? 'banned'
-                         : 'invalid_credentials';
+            // 'user_banned' bewusst nicht unterscheiden: Supabase meldet den Bann vor der
+            // Passwortprüfung, sonst verrät jede Eingabe, dass das Konto existiert und gesperrt ist.
+            const reason = error.code === 'email_not_confirmed' ? 'email_not_confirmed' : 'invalid_credentials';
             return { success: false, reason };
         }
 

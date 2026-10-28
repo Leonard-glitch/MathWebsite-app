@@ -55,15 +55,15 @@ Registriert sich jemand mit einer E-Mail erneut, deren Konto noch **nicht bestä
 
 Nutzer mind. 14 Tage vorher per E-Mail informieren (ToS 15.2), Text und Migration erst zum Stichtag ausspielen.
 
-1. Text ändern, "Version x.y" und Datum im Text anheben.
-2. Neue Migration anlegen, die `public.current_legal_versions()` ersetzt, z. B. Terms 1.1:
-   ```sql
-   create or replace function public.current_legal_versions()
-   returns table (privacy_version text, terms_version text)
-   language sql stable set search_path = ''
-   as $$ select '1.0'::text, '1.1'::text $$;
-   ```
-3. Frontend und Migration ausspielen. Eingeloggte Nutzer sehen beim nächsten Seitenaufruf, sobald der 15-Minuten-Merker des Tabs abgelaufen ist. Bereits geöffnete Seiten ohne Neuladen zeigen den Dialog nicht. den Bestätigungs-Dialog für das geänderte Dokument. Die 14+-Bestätigung wird nicht erneut verlangt. Die bisherige Zustimmung bleibt in `consent_history`.
+Versionen haben das Format `major.minor`.
+
+- **Kleine Änderung** (neues Tool, Klarstellung): nur minor erhöhen (`1.1`). Kein Dialog, Nutzer werden nur informiert (ToS 15.3).
+- **Große Änderung** (Rechte eingeschränkt, neue Pflichten, Gebühren, ToS 15.4): major erhöhen (`2.0`). Eingeloggte Nutzer müssen zustimmen, vorher 14 Tage per E-Mail informieren (ToS 15.2).
+
+Dazu `public.current_legal_versions()` per neuer Migration ersetzen (Beispiel unverändert).
+
+
+Frontend und Migration ausspielen. Eingeloggte Nutzer sehen beim nächsten Seitenaufruf, sobald der 15-Minuten-Merker des Tabs abgelaufen ist. Bereits geöffnete Seiten ohne Neuladen zeigen den Dialog nicht. den Bestätigungs-Dialog für das geänderte Dokument. Die 14+-Bestätigung wird nicht erneut verlangt. Die bisherige Zustimmung bleibt in `consent_history`.
 
 ## Nachweis im Streitfall
 
