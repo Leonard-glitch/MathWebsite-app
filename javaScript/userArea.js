@@ -226,29 +226,21 @@ function initAccountPanel() {
             return;
         }
         
-        // FEHLER 2: Ungültiges Username-Format
-        if (!newName || !window.MV.isUsernameFormatValid(newName)) {
+        // FEHLER 2: Username ungültig, nicht erlaubt oder vergeben (Server entscheidet)
+        const status = await window.MV.checkUsername(newName, user.username);
+        if (status !== 'ok' && status !== 'error') {
             shakeElement(document.getElementById('input-username'));
-            displayError('Only letters, numbers, _, - and . are allowed (3–20 characters).');
+            displayError(window.MV.usernameErrorMessage(status, newName));
             return;
         }
 
-        // FEHLER 2b: Reservierter Username
-        if (window.MV.isUsernameReserved(newName)) {
+        // Alles okay -> Speichern (der Server prüft beim Speichern erneut)
+        const saved = await window.MV.updateUsername(newName);
+        if (!saved.success) {
             shakeElement(document.getElementById('input-username'));
-            displayError(`The username "${newName}" is reserved and cannot be used.`);
+            displayError('The username could not be saved. Please choose another one.');
             return;
         }
-
-        // FEHLER 3: Username bereits vergeben
-        if (await window.MV.isUsernameTaken(newName, user.username)) {
-            shakeElement(document.getElementById('input-username'));
-            displayError(`The username "${newName}" is already taken.`);
-            return;
-        }
-
-        // Alles okay -> Speichern
-        await window.MV.updateUsername(newName);
         populateUserInfo();
         exitEditMode(viewMode, editMode, editBtn);
         document.getElementById('input-current-pw').value = '';

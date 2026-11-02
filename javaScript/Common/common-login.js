@@ -975,21 +975,33 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
     // ==========================================================================
 
     const USERNAME_REGEX = /^(?=.*[A-Za-z])[a-zA-Z0-9_.-]{3,20}$/;
-    const RESERVED_USERNAMES = ['admin', 'test', 'max_mustermann', 'mathverse', 'moderator'];
-
     function isUsernameFormatValid(username) { return !!username && USERNAME_REGEX.test(username); }
-    function isUsernameReserved(username) { return !!username && RESERVED_USERNAMES.includes(username.toLowerCase()); }
 
-    // WICHTIG: jetzt async (vorher synchron) - siehe Zusammenfassung/Risiken.
-    async function isUsernameTaken(username, excludeUsername = null) {
-        if (!username) return false;
-        if (excludeUsername && username.toLowerCase() === excludeUsername.toLowerCase()) return false;
-        const { data, error } = await supabaseClient.rpc('is_username_available', { check_name: username });
-        if (error) {
-            console.warn('[MV] Verfügbarkeitsprüfung fehlgeschlagen:', error.message);
-            return false; // im Zweifel nicht blockieren - harte Prüfung erfolgt ohnehin serverseitig beim Signup
+    // Der Server entscheidet (RPC check_username): 'ok' | 'invalid' | 'not_allowed' | 'taken'.
+    // 'error' = Prüfung nicht erreichbar -> wird NICHT blockiert, der Server prüft beim Speichern erneut.
+    async function checkUsername(username, ownUsername = null) {
+        if (!isUsernameFormatValid(username)) return 'invalid';
+        try {
+            const { data, error } = await supabaseClient.rpc('check_username', { check_name: username });
+            if (error || typeof data !== 'string') {
+                console.warn('[MV] Username-Prüfung fehlgeschlagen:', error && error.message);
+                return 'error';
+            }
+            // Der eigene Name (nur andere Schreibweise) zählt nicht als "vergeben"
+            if (data === 'taken' && ownUsername && username.toLowerCase() === ownUsername.toLowerCase()) return 'ok';
+            return data;
+        } catch (err) {
+            return 'error';
         }
-        return data === false;
+    }
+
+    function usernameErrorMessage(code, name) {
+        switch (code) {
+            case 'invalid':     return 'Only letters, numbers, _, - and . are allowed (3–20 characters, at least one letter).';
+            case 'not_allowed': return 'This username is not allowed. Please choose another one.';
+            case 'taken':       return `"${name}" is already taken.`;
+            default:            return null;
+        }
     }
 
     function getPasswordStrength(pw) {
@@ -1636,7 +1648,7 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
         checkLegalConsent,
         getUsername: () => (getCurrentUser()?.username) || 'Guest',
         getEmail: () => (getCurrentUser()?.email) || '',
-        isUsernameTaken, isUsernameFormatValid, isUsernameReserved,
+        checkUsername, usernameErrorMessage, isUsernameFormatValid,
         registerUser, loginUser, deleteCurrentAccount, resendConfirmationEmail,
         verifyCurrentPassword, updateUsername, updatePassword,
         getAdvancedModes, setAdvancedModes, getAdvancedMode, toggleAdvancedMode,

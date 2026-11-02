@@ -77,22 +77,20 @@ async function validateUsername(silent = false) {
         return false;
     }
 
-    if (!window.MV.isUsernameFormatValid(val)) {
-        setError(usernameInput);
-        if (!silent) showMsg(usernameError, 'Only letters, numbers, _, - and . are allowed (3–20 characters).');
-        return false;
-    }
+    const status = await window.MV.checkUsername(val);   // prüft das Format sofort, ohne Netzwerk
+    if (seq !== usernameCheckSeq) return false;           // inzwischen neuere Eingabe
 
-    const unavailable = window.MV.isUsernameReserved(val) || await window.MV.isUsernameTaken(val);
-    if (seq !== usernameCheckSeq) return false;   // inzwischen neuere Eingabe
-    if (unavailable) {
+    if (status !== 'ok' && status !== 'error') {
         setError(usernameInput);
-        if (!silent) showMsg(usernameError, `"${val}" is already taken.`);
+        if (!silent) showMsg(usernameError, window.MV.usernameErrorMessage(status, val));
         return false;
     }
 
     setValid(usernameInput);
-    if (!silent) showSuccessMsg(usernameError, `"${val}" is available.`);
+    if (!silent) {
+        if (status === 'ok') showSuccessMsg(usernameError, `"${val}" is available.`);
+        else hideMsg(usernameError);   // Server nicht erreichbar: nichts behaupten
+    }
     return true;
 }
 
@@ -284,18 +282,16 @@ form.addEventListener('submit', async (e) => {
         showMsg(usernameError, 'Please enter a username.');
         valid = false;
         firstErrorInput = firstErrorInput || usernameInput;
-    } else if (!window.MV.isUsernameFormatValid(uname)) {
-        setError(usernameInput);
-        showMsg(usernameError, 'Only letters, numbers, _, - and . are allowed (3–20 characters).');
-        valid = false;
-        firstErrorInput = firstErrorInput || usernameInput;
-    } else if (window.MV.isUsernameReserved(uname) || await window.MV.isUsernameTaken(uname)) {
-        setError(usernameInput);
-        showMsg(usernameError, `"${uname}" is already taken.`);
-        valid = false;
-        firstErrorInput = firstErrorInput || usernameInput;
     } else {
-        setValid(usernameInput);
+        const status = await window.MV.checkUsername(uname);
+        if (status !== 'ok' && status !== 'error') {
+            setError(usernameInput);
+            showMsg(usernameError, window.MV.usernameErrorMessage(status, uname));
+            valid = false;
+            firstErrorInput = firstErrorInput || usernameInput;
+        } else {
+            setValid(usernameInput);
+        }
     }
 
     // 2. Email
