@@ -974,7 +974,7 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
     // USERNAME-PRÜFUNG
     // ==========================================================================
 
-    const USERNAME_REGEX = /^[a-zA-Z0-9_.-]{3,20}$/;
+    const USERNAME_REGEX = /^(?=.*[A-Za-z])[a-zA-Z0-9_.-]{3,20}$/;
     const RESERVED_USERNAMES = ['admin', 'test', 'max_mustermann', 'mathverse', 'moderator'];
 
     function isUsernameFormatValid(username) { return !!username && USERNAME_REGEX.test(username); }
