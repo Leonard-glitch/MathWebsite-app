@@ -974,7 +974,7 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
     // USERNAME-PRÜFUNG
     // ==========================================================================
 
-    const USERNAME_REGEX = /^(?=.*[A-Za-z])[a-zA-Z0-9_.-]{3,20}$/;
+    const USERNAME_REGEX = /^(?=.{3,20}$)(?=.*[A-Za-z])[A-Za-z0-9]+(?:[_.-][A-Za-z0-9]+)*$/;
     function isUsernameFormatValid(username) { return !!username && USERNAME_REGEX.test(username); }
 
     // Der Server entscheidet (RPC check_username): 'ok' | 'invalid' | 'not_allowed' | 'taken'.
@@ -997,7 +997,7 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
 
     function usernameErrorMessage(code, name) {
         switch (code) {
-            case 'invalid':     return 'Only letters, numbers, _, - and . are allowed (3–20 characters, at least one letter).';
+            case 'invalid':     return 'Use 3–20 characters: letters, numbers and single _, - or . between them. Start and end with a letter or number and include at least one letter.';
             case 'not_allowed': return 'This username is not allowed. Please choose another one.';
             case 'taken':       return `"${name}" is already taken.`;
             default:            return null;
