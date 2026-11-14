@@ -36,9 +36,9 @@ const viewMemberSince = document.getElementById('view-member-since');
 function formatMemberSince(timestamp) {
     if (!timestamp) return "–";
 
-    return new Date(timestamp).toLocaleDateString("de-AT", {
-        day: "2-digit",
-        month: "2-digit",
+    return new Date(timestamp).toLocaleDateString(window.MV.LOCALE, {
+        day: "numeric",
+        month: "short",
         year: "numeric"
     });
 }

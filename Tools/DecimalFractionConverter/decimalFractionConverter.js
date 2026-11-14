@@ -31,6 +31,20 @@ function ggt(a, b) {
     return b === 0 ? a : ggt(b, a % b);
 }
 
+// "1e-7" -> "0.0000001", "2.5E3" -> "2500"
+function expandExponent(str) {
+    const m = /^([+-]?)(\d*)(?:\.(\d*))?[eE]([+-]?\d+)$/.exec(str);
+    if (!m) return str;
+    const [, sign, intDigits, fracDigits = "", expStr] = m;
+    const digits = intDigits + fracDigits;
+    const pointPos = intDigits.length + parseInt(expStr, 10);
+    let out;
+    if (pointPos <= 0)                  out = "0." + "0".repeat(-pointPos) + digits;
+    else if (pointPos >= digits.length) out = digits + "0".repeat(pointPos - digits.length);
+    else                                out = digits.slice(0, pointPos) + "." + digits.slice(pointPos);
+    return sign + out;
+}
+
 function hideError() {
     errorMessages.style.display = "none";
 }
@@ -70,7 +84,7 @@ function berechneDezimalZuBruch() {
     const zaehlerOut = document.getElementById("zaehler1");
     const nennerOut  = document.getElementById("nenner1");
 
-    const rawValue = dezInput.value.trim().replace(",", ".");
+    const rawValue = expandExponent(dezInput.value.trim().replace(",", "."));
 
     if (rawValue === "") {
         zaehlerOut.value = "";
@@ -79,7 +93,7 @@ function berechneDezimalZuBruch() {
         return;
     }
 
-    if (isNaN(Number(rawValue))) {
+    if (!Number.isFinite(Number(rawValue))) {
         showError("Please enter a valid decimal number.");
         return;
     }
@@ -96,6 +110,12 @@ function berechneDezimalZuBruch() {
     const teiler  = ggt(startZaehler, startNenner);
     const zaehler = startZaehler / teiler;
     const nenner  = startNenner / teiler;
+
+    // Non-zero input that becomes 0 after cutting at 10 decimal places (e.g. 1e-12)
+    if (startZaehler === 0 && /[1-9]/.test(rawValue)) {
+        showError(`Value too small: only the first ${MAX_NACHKOMMASTELLEN} decimal places are supported.`);
+        return;
+    }
 
     zaehlerOut.value = zaehler;
     nennerOut.value  = nenner;

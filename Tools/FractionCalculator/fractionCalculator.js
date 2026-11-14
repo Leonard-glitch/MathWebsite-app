@@ -42,6 +42,14 @@ function isDecimal(str) {
     return !isNaN(num) && !Number.isInteger(num);
 }
 
+// Unlike parseInt(), understands exponent notation ("1e2" -> 100, parseInt gave 1)
+function parseIntStrict(str) {
+    const s = (str || "").trim().replace(",", ".");
+    if (s === "") return NaN;
+    const num = Number(s);
+    return Number.isInteger(num) ? num : NaN;
+}
+
 // ── Error handling 
 function hideError() {
     errorMessages.style.display = "none";
@@ -98,9 +106,9 @@ function getFraction(gEl, zEl, nEl) {
         return "IS_DECIMAL";
     }
 
-    let g = mixedToggle.checked ? (parseInt(gVal, 10) || 0) : 0;
-    let z = parseInt(zVal, 10);
-    let n = parseInt(nVal, 10);
+    let g = mixedToggle.checked ? (parseIntStrict(gVal) || 0) : 0;
+    let z = parseIntStrict(zVal);
+    let n = parseIntStrict(nVal);
 
     if (isNaN(z) || isNaN(n)) return null;
     if (n === 0)               return "NaN_Nenner";
@@ -172,7 +180,7 @@ function calculate() {
         const factorVal = inputs.factor.value.trim();
         if (isDecimal(factorVal)) { showError("Decimal numbers are not allowed! Please use whole numbers."); return; }
 
-        const factor = parseInt(factorVal, 10);
+        const factor = parseIntStrict(factorVal);
         if (isNaN(factor)) { resetOutput(); return; }
         if (factor === 0)  { showError("Expansion factor cannot be 0!"); return; }
 

@@ -739,7 +739,7 @@ const MATH_HISTORY_KEY = "matheRechner";
 
 function formatHistoryTime(iso) {
     try {
-        return new Date(iso).toLocaleString("en-US", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+        return new Date(iso).toLocaleString(window.MV.LOCALE, { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
     } catch {
         return "";
     }

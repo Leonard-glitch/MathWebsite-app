@@ -17,6 +17,9 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
     const { getTheme: getThemeInit, getDesign: getDesignInit, getFontSize: getFontSizeInit,
             applyTheme, applyDesign, applyFontSize, THEMES } = window.MV_THEME;
 
+    // One locale for all number/date formatting (UI language is English)
+    const LOCALE = 'en-US';
+
     const CURRENCIES = {
         EUR: 'Euro', USD: 'US Dollar', GBP: 'British Pound', JPY: 'Japanese Yen',
         CHF: 'Swiss Franc', CAD: 'Canadian Dollar', AUD: 'Australian Dollar',
@@ -780,15 +783,15 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
         else { localStorage.setItem('mv-currency', code); }
     }
     function getCurrencySymbol() {
-        const parts = new Intl.NumberFormat('de-DE', { style: 'currency', currency: getCurrency() }).formatToParts(0);
+        const parts = new Intl.NumberFormat(LOCALE, { style: 'currency', currency: getCurrency() }).formatToParts(0);
         const symbolPart = parts.find(p => p.type === 'currency');
         return symbolPart ? symbolPart.value : getCurrency();
     }
     function formatCurrency(amount) {
-        return new Intl.NumberFormat('de-DE', { style: 'currency', currency: getCurrency() }).format(amount);
+        return new Intl.NumberFormat(LOCALE, { style: 'currency', currency: getCurrency() }).format(amount);
     }
     function formatCurrencyCompact(amount) {
-        return new Intl.NumberFormat('de-DE', { style: 'currency', currency: getCurrency(), maximumFractionDigits: 0 }).format(amount);
+        return new Intl.NumberFormat(LOCALE, { style: 'currency', currency: getCurrency(), maximumFractionDigits: 0 }).format(amount);
     }
 
     function getDecimalPlaces() {
@@ -1629,7 +1632,7 @@ const MV_SUPABASE_ANON_KEY = 'sb_publishable_5cGoljlRhJDfdxV9G0-3fw_-639_H1o';
     // PUBLIC API
     // ==========================================================================
     window.MV = {
-        THEMES, CURRENCIES,
+        THEMES, CURRENCIES, LOCALE,
         redirectIfLoggedIn, isLoggedIn, getCurrentUser, saveCurrentUser, updateCurrentUser, logout,
         getFavorites, setFavorites, toggleFavorite,
         getPinnedGroups, setPinnedGroups,

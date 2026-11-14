@@ -882,7 +882,7 @@ function refreshSketch() {
 // { values, steps } (all calculable values + solution steps) or { error }.
 
 function formatNum(n) {
-    return n.toLocaleString('en-US', {
+    return n.toLocaleString(window.MV.LOCALE, {
         minimumFractionDigits: window.MV.getDecimalPlaces(),
         maximumFractionDigits: window.MV.getDecimalPlaces()
     });

@@ -155,6 +155,15 @@
                     <p>Log in and open the User Area. Under <strong>Appearance</strong> you can choose the design (Abyss, Dark or Light), the accent color and the font size, then click <strong>Save design</strong>. On phones the font size is limited to 20px. Currency and decimal places are under <strong>Extra settings</strong>.</p>
                 </div>
             </details>
+
+            <details class="helpItem" id="not-supported">
+                <summary>"This combination is currently not supported" – what now?</summary>
+                <div class="helpAnswer">
+                    <p>Some tools do not cover every possible input yet. In the Geometry Calculator, not every combination of given values can be solved. Try a different combination, for example base measurements (sides, radius, height) instead of derived values such as area or volume. The general triangle works with three values among a, b, c, α, β and γ (not all three angles).</p>
+                    <p>The Equation Solver only gives a result when the variable can be isolated uniquely. Equations with two possible results, such as <code>x² = 4</code>, or with absolute values are not supported yet and show a hint instead.</p>
+                    <p>Missing something? Use <strong>Feedback</strong> in the footer and choose <strong>Suggest a new math tool</strong>.</p>
+                </div>
+            </details>
  
             <h2>Problems</h2>
  
@@ -181,7 +190,7 @@
  
         </div>
     </main>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="../javaScript/vendor/supabase/supabase.js"></script>
 <script src="../javaScript/Common/common-login.js"></script>
 <script src="../javaScript/legalStuffPages.js"></script>
 <script src="../javaScript/help.js"></script>   

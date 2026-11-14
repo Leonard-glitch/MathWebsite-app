@@ -108,11 +108,8 @@
             <p><strong>Retention:</strong> Cloudflare keeps standard technical logs and aggregated statistics for up to 30 days under our free plan. We do not use these logs to analyse individual visitors.</p>
 
             <!-- 4 -->
-            <!-- TODO(8.2): remove this whole section once supabase-js and MathLive are self-hosted -->
-            <h2 id="s4">4. Software libraries from jsDelivr</h2>
-            <p>Our pages load the open-source authentication library (supabase-js) from the content delivery network jsDelivr (<code>cdn.jsdelivr.net</code>). This applies to every page. The formula input component MathLive, including its fonts and sounds, is hosted on our own server.</p>
-            <p>When your browser loads these files, your IP address and technical request data (browser type, time, requested file) are transmitted to jsDelivr and the infrastructure providers it uses, which may operate servers outside the EU/EEA. The legal basis is our legitimate interest in providing functioning tools (Art. 6(1)(f) GDPR). We plan to host these libraries ourselves in the future.</p>
-
+            <h2 id="s4">4. Software libraries</h2>
+            <p>All software libraries used by Globomath, including the authentication library (supabase-js) and the formula input component MathLive with its fonts and sounds, are hosted on our own server and delivered through Cloudflare (see <a href="#s3">section 3</a>). We do not load scripts, fonts or other files from third-party content delivery networks.</p>
             <!-- 5 -->
             <h2 id="s5">5. Your account: registration and login</h2>
             <p>You do not need an account to use the tools. If you create one, we process:</p>
@@ -226,7 +223,6 @@
                         <tr><td>Supabase, Inc.</td><td>Authentication and database</td><td>Database in Frankfurt, Germany (EU); provider based in the USA</td></tr>
                         <tr><td>Resend, Inc.</td><td>Sending transactional emails and feedback emails</td><td>EU (Ireland)</td></tr>
                         <tr><td>Google LLC (Gmail)</td><td>Mailbox for support and feedback emails</td><td>USA, global</td></tr>
-                        <tr><td>jsDelivr</td><td>CDN for software libraries (see <a href="#s4">section 4</a>)</td><td>Global CDN</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -309,7 +305,7 @@
 
         </div>
     </main>
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+    <script src="../javaScript/vendor/supabase/supabase.js"></script>
     <script src="../javaScript/Common/common-login.js"></script>
     <script src="../javaScript/legalStuffPages.js"></script>
 </body>
